@@ -7,7 +7,7 @@ name = "mp-mcp"
 version = "0.2.0"
 description = "Materials Project MCP server generated from the MP API's own OpenAPI spec and the mp-api client"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "FORUM-AI development team", email = "FORUM-AI@lbl.gov" }]
 dependencies = [
