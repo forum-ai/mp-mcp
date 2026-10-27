@@ -1,6 +1,5 @@
 .venv
 .git
 tests
-bakeoff
-mp_objects
+evaluation
 **/__pycache__

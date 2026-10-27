@@ -6,7 +6,7 @@ Five tools reach all of the MP API, and MP's own docs server is mounted beside t
   describe_endpoint  one endpoint's parameters and returned fields, with their descriptions
   query              run one endpoint with filters, chosen fields and a row limit
   list_objects       the mp-api get_* methods for band structures, DOS, phonons, phase diagrams...
-  get_object         call one, as a readable summary with a plot, or as full pymatgen JSON
+  get_object         call one, as a readable summary with a plot, as full pymatgen JSON, or as cif/poscar
   docs_search        search MP's documentation, through the docs site's own MCP server
   docs_page          read one documentation page
 """
@@ -37,6 +37,7 @@ log = logging.getLogger("mp_mcp")
 MAX_ROWS = int(os.environ.get("MP_MCP_MAX_ROWS", 500))
 MAX_CHARS = int(os.environ.get("MP_MCP_MAX_CHARS", 20_000))
 TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 60))
+ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "legacy")  # MP stores AlphaIDs (mp-aaaaaaft); people know mp-149
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 
@@ -49,9 +50,22 @@ Live access to the Materials Project (MP): computed structures and properties of
 materials and molecules. Use it for any question about a material's stability, band gap, \
 band structure, elastic, dielectric, magnetic, phonon, electrode or surface properties, \
 synthesis or similar materials. Work in this order: list_endpoints, describe_endpoint for \
-the one you need, then query with a few fields and a small limit. For band structures, \
-densities of states, phonons, phase diagrams and other objects, use list_objects and \
-get_object. For how MP computes a value, use docs_search. Cite material_ids."""
+the one you need, then query with a few fields and a small limit. /materials/summary/ holds \
+most properties of a material in one document (energy_above_hull, band_gap, is_stable, k_vrh, \
+ordering, ...); /materials/thermo/ returns one document per functional (thermo_types). For a \
+count, query with limit=1 and read the total; for more rows than the limit, pass _skip in params. \
+For band structures, densities of states, phonons, phase diagrams and other objects, use \
+list_objects and get_object; a structure comes as cif or poscar with format='cif'. For how MP \
+computes a value, use docs_search. Cite material_ids."""
+
+
+def _coerce(v: Any) -> Any:
+    """A filter value as the MP API wants it on the query string."""
+    if isinstance(v, bool):
+        return str(v).lower()
+    if isinstance(v, (list, tuple)):
+        return ",".join(str(_coerce(x)) for x in v)
+    return v
 
 
 def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMCP:
@@ -102,41 +116,66 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         out += [f"  {p['name']} ({p['type']}): {p['description']}" for p in params]
         if ep.body:
             out += ["", f"Request body: {ep.body.get('description') or ep.body.get('title') or 'JSON object'}"]
-        out += ["", f"Returned fields ({len(fields)}), for the fields argument of query:"]
-        out += [f"  {n} ({f['type']}): {f['description']}" for n, f in fields.items()]
+        out += ["", "Sorting: " + ("pass sort='-field' to query; also filter on that field (e.g. field_min) so documents "
+                                   "without it are left out." if ep.has_param("_sort_fields")
+                                   else "not supported by this endpoint; sort the rows yourself.")]
+        if not ep.fields:
+            out += ["", "Returned fields: not described in MP's spec. query returns the whole documents; leave fields empty."]
+        else:
+            out += ["", f"Returned fields ({len(fields)}), for the fields argument of query:"]
+            out += [f"  {n} ({f['type']}): {f['description']}" for n, f in fields.items()]
         return "\n".join(out)
 
     @mcp.tool(annotations=READ_ONLY)
     async def query(
         path: Annotated[str, Field(description="Endpoint path from list_endpoints")],
-        fields: Annotated[list[str], Field(description="Returned fields to include (see describe_endpoint). Ask only for what you need.")],
-        params: Annotated[dict[str, Any] | None, Field(description="Filters from describe_endpoint, e.g. {'elements': 'Ba,O', 'nelements_max': 3, 'is_stable': True, 'band_gap_min': 2, 'band_gap_max': 3}")] = None,
-        limit: Annotated[int, Field(description=f"Maximum rows to return (at most {MAX_ROWS})", ge=1)] = 20,
-        sort: Annotated[str, Field(description="Optional comma-separated fields to sort by; prefix - for descending, e.g. '-band_gap'")] = "",
+        fields: Annotated[list[str] | None, Field(description="Returned fields to include (see describe_endpoint). Ask only for what you need; empty means the whole document.")] = None,
+        params: Annotated[dict[str, Any] | None, Field(description="Filters from describe_endpoint, e.g. {'elements': 'Ba,O', 'nelements_max': 3, 'is_stable': True, 'band_gap_min': 2, 'band_gap_max': 3}. Lists become comma-separated. _skip pages past the limit.")] = None,
+        limit: Annotated[int, Field(description=f"Maximum rows to return (at most {MAX_ROWS}). Use 1 to get just the total count.", ge=1)] = 20,
+        sort: Annotated[str, Field(description="Optional comma-separated fields to sort by; prefix - for descending, e.g. '-band_gap'. Only some endpoints support it (describe_endpoint says).")] = "",
         body: Annotated[dict[str, Any] | None, Field(description="JSON body, only for POST endpoints such as /materials/core/find_structure/ (a pymatgen Structure as_dict)")] = None,
     ):
         """Run one Materials Project endpoint and return matching documents as JSON rows,
         with the total number of matches. Filters, fields and paths are exactly those of the
         MP API (describe_endpoint lists them)."""
         ep = endpoint(path)
-        q: dict[str, Any] = {}
-        for k, v in (params or {}).items():
-            q[k] = ",".join(map(str, v)) if isinstance(v, (list, tuple)) else str(v).lower() if isinstance(v, bool) else v
-        if ep.method == "GET" or "_fields" in {p["name"] for p in ep.params}:
+        q: dict[str, Any] = {k: _coerce(v) for k, v in (params or {}).items() if v is not None}
+        if fields and ep.has_param("_fields"):
             q["_fields"] = ",".join(fields)
-        q["_limit"] = min(limit, MAX_ROWS)
+        elif fields and not ep.has_param("_fields") and ep.method == "GET":
+            q["_fields"] = ",".join(fields)  # a few GET endpoints omit it from the spec but honor it
+        if ID_FORMAT and ep.has_param("id_format"):
+            q.setdefault("id_format", ID_FORMAT)
+        if ep.has_param("_limit"):
+            q["_limit"] = min(limit, MAX_ROWS)
+        elif ep.has_param("limit"):
+            q.setdefault("limit", min(limit, MAX_ROWS))
         if sort:
+            if not ep.has_param("_sort_fields"):
+                raise ToolError(f"{ep.path} does not support sorting. Fetch the rows and sort them yourself, "
+                                "or sort on /materials/summary/, which carries most properties and supports sort.")
             q["_sort_fields"] = sort
         headers = {"x-api-key": key(), "user-agent": "mp-mcp"}
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             try:
-                r = await client.request(ep.method, f"{spec.API_ROOT}{ep.path}", params=q, headers=headers, json=body)
+                r = await client.request(ep.method, f"{spec.API_ROOT}{ep.path}", params=q, headers=headers,
+                                         json=body if ep.method != "GET" else None)
             except httpx.TimeoutException:
                 raise ToolError(f"MP took longer than {TIMEOUT:.0f} s. Add filters or lower the limit.") from None
+            except httpx.HTTPError as exc:
+                raise ToolError(f"Could not reach the MP API ({type(exc).__name__}: {exc}). Try again shortly.") from None
         if r.status_code >= 400:
             raise ToolError(f"MP API returned {r.status_code}: {r.text[:500]}")
-        payload = r.json()
-        rows = payload.get("data") or []
+        try:
+            payload = r.json()
+        except ValueError:
+            raise ToolError(f"MP API returned something that is not JSON (status {r.status_code}): {r.text[:300]}") from None
+        if isinstance(payload, list):
+            payload = {"data": payload}
+        if not isinstance(payload, dict):
+            raise ToolError(f"Unexpected response from the MP API: {str(payload)[:300]}")
+        rows = payload.get("data")
+        rows = rows if isinstance(rows, list) else ([rows] if rows else [])
         total = (payload.get("meta") or {}).get("total_doc")
         text = json.dumps(rows, default=str)
         shown = len(rows)
@@ -144,6 +183,9 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             shown = max(1, shown // 2)
             text = json.dumps(rows[:shown], default=str)
         note = "" if shown == len(rows) else f" Cut to {shown} rows to fit; ask for fewer fields or rows."
+        if len(text) > MAX_CHARS:  # one row is still too big
+            text = text[:MAX_CHARS] + f"... [{len(text):,} characters; ask for fewer fields]"
+            note += " The row was truncated."
         return f"{total if total is not None else '?'} matches; {shown} returned.{note}\n{text}"
 
     @mcp.tool(annotations=READ_ONLY)
@@ -159,24 +201,39 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
     @mcp.tool(annotations=READ_ONLY)
     async def get_object(
         method: Annotated[str, Field(description="Method name from list_objects, e.g. get_bandstructure_by_material_id or materials.thermo.get_phase_diagram_from_chemsys")],
-        args: Annotated[dict[str, Any] | None, Field(description="Keyword arguments for the method, e.g. {'material_id': 'mp-149'}")] = None,
-        format: Annotated[Literal["summary", "json"], Field(description="summary: readable text plus a plot. json: the full pymatgen object (as_dict), inline when small, else a file path or download link; load it with monty.serialization.loadfn")] = "summary",
+        args: Annotated[dict[str, Any] | None, Field(description="Keyword arguments for the method, e.g. {'material_id': 'mp-149'} or {'material_id': 'mp-149', 'conventional_unit_cell': True}")] = None,
+        format: Annotated[Literal["summary", "json", "cif", "poscar"], Field(description="summary: readable text plus a plot. json: the full pymatgen object (as_dict), inline when small, else a file path or download link; load it with monty.serialization.loadfn. cif or poscar: a structure as that text format (structures only).")] = "summary",
     ) -> list:
-        """Call one mp-api object method and return its result, either as a short readable
-        summary with a plot or as the complete pymatgen object in JSON."""
+        """Call one mp-api object method and return its result: a short readable summary with
+        a plot, the complete pymatgen object in JSON, or (for structures) a CIF or POSCAR."""
         if method not in methods:
             raise ToolError(f"No method {method!r}. Use a name from list_objects.")
         k = key()
-        try:
-            obj = await anyio.to_thread.run_sync(objects.call, k, method, args or {})
-        except TypeError as exc:
-            raise ToolError(f"Bad arguments for {method}: {exc}") from None
-        except Exception as exc:
-            raise ToolError(f"{method} failed: {exc}") from None
+        obj: Any = None
+        with anyio.move_on_after(TIMEOUT) as scope:
+            try:
+                obj = await anyio.to_thread.run_sync(objects.call, k, method, args or {}, abandon_on_cancel=True)
+            except TypeError as exc:
+                raise ToolError(f"Bad arguments for {method}: {exc}") from None
+            except Exception as exc:
+                raise ToolError(f"{method} failed: {exc}") from None
+        if scope.cancelled_caught:
+            raise ToolError(f"{method} took longer than {TIMEOUT:.0f} s. Narrow the request (a smaller chemical system, "
+                            "one material) or fetch it with mp-api directly.")
+        if format in objects.STRUCTURE_FORMATS:
+            try:
+                return [_t(objects.structure_text(obj, format))]
+            except TypeError as exc:
+                raise ToolError(str(exc)) from None
         if format == "summary":
             text, png = await anyio.to_thread.run_sync(objects.summarize, obj)
             return [_t(text), Image(data=png, format="png")] if png else [_t(text)]
-        data = await anyio.to_thread.run_sync(objects.to_json, obj)
+        try:
+            data = await anyio.to_thread.run_sync(objects.to_json, obj)
+        except objects.TooLarge as exc:
+            raise ToolError(str(exc)) from None
+        except (TypeError, ValueError) as exc:
+            raise ToolError(f"{method} returned something that cannot be written as JSON ({exc}). Ask for the summary.") from None
         if len(data) <= objects.INLINE_LIMIT:
             return [_t(data.decode())]
         name = f"{method.replace('.', '_')}.json"
@@ -238,15 +295,18 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
 def main() -> None:
     ap = argparse.ArgumentParser(description="Materials Project MCP server")
     ap.add_argument("--transport", choices=["stdio", "http"], default=os.environ.get("MP_MCP_TRANSPORT", "stdio"))
-    ap.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))
+    ap.add_argument("--host", default=os.environ.get("HOST"),
+                    help="HTTP listen address. Default: 0.0.0.0 when MP_MCP_HOSTED=1, else 127.0.0.1 (the server's own key must not be reachable from other machines)")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
     server = build_server()
     if a.transport == "http":
+        host = a.host or ("0.0.0.0" if hosted() else "127.0.0.1")
         if not hosted():
-            log.warning("Serving over HTTP without MP_MCP_HOSTED=1: callers without a key would use this server's key")
-        server.run(transport="http", host=a.host, port=a.port, path="/mcp", stateless_http=True)
+            log.warning("Serving over HTTP without MP_MCP_HOSTED=1: callers without a key use this server's key. "
+                        "Listening on %s only.", host)
+        server.run(transport="http", host=host, port=a.port, path="/mcp", stateless_http=True)
     else:
         server.run()
 

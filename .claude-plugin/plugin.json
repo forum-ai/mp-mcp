@@ -1,16 +1,17 @@
 {
   "name": "mp-mcp",
   "displayName": "Materials Project",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live Materials Project data in Claude Code: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation",
   "author": { "name": "FORUM-AI development team", "email": "FORUM-AI@lbl.gov" },
   "repository": "https://github.com/forum-ai/mp-mcp",
+  "homepage": "https://github.com/forum-ai/mp-mcp",
   "keywords": ["materials", "materials-project", "dft", "chemistry"],
   "userConfig": {
     "mp_api_key": {
       "type": "string",
       "title": "Materials Project API key",
-      "description": "Your key from https://next-gen.materialsproject.org/api . It is stored in your system keychain.",
+      "description": "Your key from https://next-gen.materialsproject.org/api . Claude Code keeps it in your system keychain and passes it to the local server as MP_API_KEY.",
       "required": true,
       "sensitive": true
     }
@@ -19,7 +20,10 @@
     "materials-project": {
       "command": "uv",
       "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "mp-mcp"],
-      "env": { "MP_API_KEY": "${user_config.mp_api_key}" }
+      "env": {
+        "MP_API_KEY": "${user_config.mp_api_key}",
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv"
+      }
     }
   }
 }
