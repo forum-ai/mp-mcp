@@ -72,3 +72,24 @@ def test_output_dir_is_never_the_cwd(monkeypatch, tmp_path):
     assert objects.output_dir() == (tmp_path / "mp-mcp" / "objects").resolve()
     monkeypatch.setenv("MP_MCP_OUTPUT_DIR", str(tmp_path / "x"))
     assert objects.output_dir() == (tmp_path / "x").resolve()
+
+
+def test_emmet_models_are_unwrapped_to_pymatgen():
+    from functools import cached_property
+
+    class FakePhononDOS:
+        @cached_property
+        def to_pmg(self):
+            from pymatgen.phonon.dos import PhononDos
+
+            return PhononDos([0.0, 1.0, 2.0], [0.0, 1.0, 0.0])
+
+    class WithMethod:
+        def to_pmg(self):
+            return "converted"
+
+    assert type(objects.unwrap(FakePhononDOS())).__name__ == "PhononDos"
+    assert objects.unwrap(WithMethod()) == "converted"
+    assert objects.unwrap({"plain": 1}) == {"plain": 1}
+    text, png = objects.summarize(objects.unwrap(FakePhononDOS()))
+    assert text.startswith("Phonon DOS")

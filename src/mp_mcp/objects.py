@@ -17,6 +17,7 @@ import json
 import os
 import secrets
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Callable
 from unittest import mock
@@ -56,7 +57,9 @@ def _first_line(fn: Callable) -> str:
 def discover() -> dict[str, Callable]:
     """Every public get_* method on MPRester and on each route under it, by dotted name.
     Needs no network: the client is built offline, only to walk its route tree."""
-    mpr = _client("x" * 32, offline=True)
+    with warnings.catch_warnings():  # mp-api's own deprecation and legacy-route notices while walking
+        warnings.simplefilter("ignore")
+        mpr = _client("x" * 32, offline=True)
     found: dict[str, Callable] = {}
     for name in dir(mpr):
         if name.startswith("get_") and name not in SKIP:
@@ -97,7 +100,19 @@ def call(api_key: str, method: str, args: dict[str, Any]) -> Any:
         target: Any = mpr
         for part in method.split("."):
             target = getattr(target, part)
-        return target(**args)
+        return unwrap(target(**args))
+
+
+def unwrap(obj: Any) -> Any:
+    """mp-api returns some objects as emmet-core models (PhononBS, PhononDOS) that carry the
+    pymatgen object under to_pmg (a cached property, or a method). Use the pymatgen one."""
+    pmg = getattr(obj, "to_pmg", None)
+    if pmg is None:
+        return obj
+    try:
+        return pmg() if callable(pmg) else pmg
+    except Exception:
+        return obj
 
 
 # ---------------------------------------------------------------- summaries

@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "FORUM-AI development team", email = "FORUM-AI@lbl.gov" }]
 dependencies = [
   "fastmcp>=3",
-  "mp-api>=0.47",
+  "mp-api[contribs]>=0.47",
   "httpx",
   "matplotlib",
 ]

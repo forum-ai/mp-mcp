@@ -102,6 +102,7 @@ A local HTTP server answers with your own key, so it listens on `127.0.0.1` unle
 | `MP_MCP_INLINE_BYTES`, `MP_MCP_LINK_TTL` | `50000`, `3600` | Largest JSON object returned inline; lifetime of a download link in seconds |
 | `MP_MCP_MAX_OBJECT_BYTES`, `MP_MCP_STORE_BYTES` | `50000000`, `256000000` | Largest object served at all; memory the hosted server gives to download links (oldest go first) |
 | `MP_MCP_OUTPUT_DIR` | `~/.cache/mp-mcp/objects` | Where a local server writes large objects |
+| `MP_MCP_ID_FORMAT` | `legacy` | MP stores identifiers as AlphaIDs (`mp-aaaaaaft`) and returns them that way unless asked; `legacy` asks for `mp-149`-style ids on the 25 endpoints that offer the choice. Empty to leave them as stored |
 | `MP_MCP_DOCS_URL` | `https://docs.materialsproject.org/~gitbook/mcp` | MP's docs MCP server; empty to turn the docs tools off |
 
 If the live spec cannot be fetched at startup, the server uses the snapshot in `src/mp_mcp/openapi_snapshot.json` and says so in `/health`. Startup needs no network at all.

@@ -139,3 +139,12 @@ async def test_get_object_times_out(mcp, monkeypatch):
     slow = srv.build_server(spec_url="bundled", mount_docs=False)
     with pytest.raises(ToolError, match="longer than"):
         await call(slow, "get_object", {"method": "get_structure_by_material_id", "args": {"material_id": "mp-149"}})
+
+
+async def test_query_asks_for_legacy_ids_where_offered(mcp, mp_api):
+    await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"]})
+    assert mp_api["params"]["id_format"] == "legacy"
+    await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"], "params": {"id_format": "alpha"}})
+    assert mp_api["params"]["id_format"] == "alpha"
+    await call(mcp, "query", {"path": "/materials/synthesis/"})
+    assert "id_format" not in mp_api["params"]

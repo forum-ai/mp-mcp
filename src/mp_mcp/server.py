@@ -37,6 +37,7 @@ log = logging.getLogger("mp_mcp")
 MAX_ROWS = int(os.environ.get("MP_MCP_MAX_ROWS", 500))
 MAX_CHARS = int(os.environ.get("MP_MCP_MAX_CHARS", 20_000))
 TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 60))
+ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "legacy")  # MP stores AlphaIDs (mp-aaaaaaft); people know mp-149
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 
@@ -115,7 +116,8 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         out += [f"  {p['name']} ({p['type']}): {p['description']}" for p in params]
         if ep.body:
             out += ["", f"Request body: {ep.body.get('description') or ep.body.get('title') or 'JSON object'}"]
-        out += ["", "Sorting: " + ("pass sort='-field' to query." if ep.has_param("_sort_fields")
+        out += ["", "Sorting: " + ("pass sort='-field' to query; also filter on that field (e.g. field_min) so documents "
+                                   "without it are left out." if ep.has_param("_sort_fields")
                                    else "not supported by this endpoint; sort the rows yourself.")]
         if not ep.fields:
             out += ["", "Returned fields: not described in MP's spec. query returns the whole documents; leave fields empty."]
@@ -142,6 +144,8 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             q["_fields"] = ",".join(fields)
         elif fields and not ep.has_param("_fields") and ep.method == "GET":
             q["_fields"] = ",".join(fields)  # a few GET endpoints omit it from the spec but honor it
+        if ID_FORMAT and ep.has_param("id_format"):
+            q.setdefault("id_format", ID_FORMAT)
         if ep.has_param("_limit"):
             q["_limit"] = min(limit, MAX_ROWS)
         elif ep.has_param("limit"):
