@@ -18,6 +18,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 API_ROOT = os.environ.get("MP_API_ENDPOINT", "https://api.materialsproject.org").rstrip("/")
+METHODS = ("get", "post", "put", "patch", "delete")
 
 
 @dataclass
@@ -29,25 +30,34 @@ class Endpoint:
     body: dict[str, Any] | None
     fields: dict[str, dict[str, Any]]
 
+    def has_param(self, name: str) -> bool:
+        return any(p["name"] == name for p in self.params)
+
+
+def _snapshot() -> dict[str, Any]:
+    return json.loads(resources.files("mp_mcp").joinpath("openapi_snapshot.json").read_text())
+
 
 def load_spec(url: str | None = None, timeout: float = 15.0) -> tuple[dict[str, Any], str]:
     """Fetch the live spec; fall back to the snapshot shipped with the package."""
     url = url or os.environ.get("MP_MCP_SPEC_URL") or f"{API_ROOT}/openapi.json"
     if url == "bundled":
-        return json.loads(resources.files("mp_mcp").joinpath("openapi_snapshot.json").read_text()), "bundled snapshot"
+        return _snapshot(), "bundled snapshot"
     try:
         r = httpx.get(url, timeout=timeout)
         r.raise_for_status()
-        return r.json(), url
+        data = r.json()
+        if not isinstance(data, dict) or not data.get("paths"):
+            raise ValueError("not an OpenAPI document")
+        return data, url
     except Exception as exc:  # network down, API down: still start
         log.warning("Could not fetch %s (%s); using the bundled snapshot", url, exc)
-        text = resources.files("mp_mcp").joinpath("openapi_snapshot.json").read_text()
-        return json.loads(text), "bundled snapshot"
+        return _snapshot(), "bundled snapshot"
 
 
 def _type(schema: dict[str, Any]) -> str:
     if "anyOf" in schema:
-        return " | ".join(_type(s) for s in schema["anyOf"] if s.get("type") != "null")
+        return " | ".join(_type(s) for s in schema["anyOf"] if s.get("type") != "null") or "any"
     if "enum" in schema:
         return "one of " + ", ".join(map(str, schema["enum"]))
     if "$ref" in schema:
@@ -58,7 +68,9 @@ def _type(schema: dict[str, Any]) -> str:
 
 
 def _doc_fields(spec: dict[str, Any], op: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """The fields of the document an endpoint returns, from its 200 response schema."""
+    """The fields of the document an endpoint returns, from its 200 response schema.
+    Empty when the spec does not describe the response (a few endpoints), in which case
+    the endpoint returns whole documents and no projection is possible."""
     schemas = spec.get("components", {}).get("schemas", {})
     try:
         ref = op["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
@@ -77,7 +89,10 @@ def _doc_fields(spec: dict[str, Any], op: dict[str, Any]) -> dict[str, dict[str,
 def endpoints(spec: dict[str, Any]) -> dict[str, Endpoint]:
     out: dict[str, Endpoint] = {}
     for path, ops in spec.get("paths", {}).items():
+        shared = [p for p in ops.get("parameters", []) if isinstance(p, dict)]  # path-level parameters
         for method, op in ops.items():
+            if method not in METHODS or not isinstance(op, dict):
+                continue
             params = [
                 {
                     "name": p["name"],
@@ -85,7 +100,7 @@ def endpoints(spec: dict[str, Any]) -> dict[str, Endpoint]:
                     "description": (p.get("description") or "").strip(),
                     "default": p.get("schema", {}).get("default"),
                 }
-                for p in op.get("parameters", [])
+                for p in shared + op.get("parameters", [])
                 if p.get("in") == "query"
             ]
             body = op.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema")

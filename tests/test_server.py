@@ -82,3 +82,60 @@ async def test_get_object_summary_and_large_json(mcp, monkeypatch, tmp_path):
     assert "written to" in big and list(tmp_path.glob("*.json"))
     with pytest.raises(ToolError):
         await call(mcp, "get_object", {"method": "not_a_method"})
+
+
+async def test_query_omits_fields_and_sort_safely(mcp, mp_api):
+    out = await call(mcp, "query", {"path": "/materials/synthesis/", "params": {"target_formula": "LiFePO4", "skip_me": None}})
+    assert "_fields" not in mp_api["params"] and "skip_me" not in mp_api["params"]
+    assert "returned" in text(out)
+    with pytest.raises(ToolError, match="does not support sorting"):
+        await call(mcp, "query", {"path": "/materials/elasticity/", "fields": ["k_vrh"], "sort": "-k_vrh"})
+    desc = text(await call(mcp, "describe_endpoint", {"path": "/materials/synthesis/"}))
+    assert "not described in MP's spec" in desc
+    desc = text(await call(mcp, "describe_endpoint", {"path": "/materials/summary/", "search": "gap"}))
+    assert "Sorting: pass sort" in desc
+
+
+async def test_query_survives_bad_upstream_payloads(mcp, monkeypatch):
+    import httpx
+    from mp_mcp import server as srv
+
+    answers = iter([httpx.Response(200, text="<html>down</html>"), httpx.Response(200, json=[{"x": 1}]),
+                    httpx.Response(200, json={"data": [{"blob": "x" * 60_000}], "meta": {"total_doc": 1}})])
+    real = httpx.AsyncClient
+    monkeypatch.setattr(srv.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(lambda req: next(answers)), **kw))
+    with pytest.raises(ToolError, match="not JSON"):
+        await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"]})
+    assert payload(await call(mcp, "query", {"path": "/materials/summary/", "fields": ["x"]})) == [{"x": 1}]
+    out = text(await call(mcp, "query", {"path": "/materials/summary/", "fields": ["blob"]}))
+    assert "truncated" in out and len(out) < srv.MAX_CHARS + 500
+
+
+async def test_get_object_cif_and_size_guards(mcp, monkeypatch, tmp_path):
+    from pymatgen.core import Lattice, Structure
+
+    si = Structure(Lattice.cubic(5.47), ["Si"] * 2, [[0, 0, 0], [0.25, 0.25, 0.25]])
+    monkeypatch.setattr(objects, "call", lambda key, method, args: si)
+    cif = text(await call(mcp, "get_object", {"method": "get_structure_by_material_id", "args": {"material_id": "mp-149"}, "format": "cif"}))
+    assert "_cell_length_a" in cif and "Si" in cif
+    poscar = text(await call(mcp, "get_object", {"method": "get_structure_by_material_id", "format": "poscar"}))
+    assert "Direct" in poscar or "direct" in poscar
+    monkeypatch.setattr(objects, "call", lambda key, method, args: {"not": "a structure"})
+    with pytest.raises(ToolError, match="only for structures"):
+        await call(mcp, "get_object", {"method": "get_structure_by_material_id", "format": "cif"})
+    monkeypatch.setattr(objects, "call", lambda key, method, args: si)
+    monkeypatch.setattr(objects, "MAX_OBJECT_BYTES", 100)
+    with pytest.raises(ToolError, match="at most 100"):
+        await call(mcp, "get_object", {"method": "get_structure_by_material_id", "format": "json"})
+
+
+async def test_get_object_times_out(mcp, monkeypatch):
+    import time
+    from mp_mcp import server as srv
+
+    monkeypatch.setattr(srv, "TIMEOUT", 0.2)
+    monkeypatch.setattr(objects, "call", lambda key, method, args: time.sleep(2))
+    slow = srv.build_server(spec_url="bundled", mount_docs=False)
+    with pytest.raises(ToolError, match="longer than"):
+        await call(slow, "get_object", {"method": "get_structure_by_material_id", "args": {"material_id": "mp-149"}})
