@@ -1,0 +1,39 @@
+# Deploys main to the ECS Express Mode service after the tests pass.
+# Off until the repository variable AWS_DEPLOY is set to "true" (README, "Deploy on AWS", step 7).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: vars.AWS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]" && pytest -q -W ignore
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Point the service at the new image
+        run: |
+          aws ecs update-express-gateway-service \
+            --service-arn "${{ vars.ECS_SERVICE_ARN }}" \
+            --primary-container "{\"image\":\"$IMAGE\",\"containerPort\":8000,\"environment\":[{\"name\":\"MP_MCP_HOSTED\",\"value\":\"1\"},{\"name\":\"MP_MCP_PUBLIC_URL\",\"value\":\"${{ vars.PUBLIC_URL }}\"}]}" \
+            --monitor-resources

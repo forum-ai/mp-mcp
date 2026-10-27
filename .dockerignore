@@ -1,0 +1,6 @@
+.venv
+.git
+tests
+bakeoff
+mp_objects
+**/__pycache__

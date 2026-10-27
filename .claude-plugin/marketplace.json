@@ -1,0 +1,15 @@
+{
+  "name": "forum-ai-mp-mcp",
+  "description": "The Materials Project MCP server as a Claude Code plugin",
+  "owner": {
+    "name": "FORUM-AI development team",
+    "email": "FORUM-AI@lbl.gov"
+  },
+  "plugins": [
+    {
+      "name": "mp-mcp",
+      "source": "./",
+      "description": "Live Materials Project data in Claude Code"
+    }
+  ]
+}
