@@ -3,6 +3,5 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 mp_objects/
-bakeoff/.venv/
-bakeoff/answer_key.md
+evaluation/answer_key.md
 uv.lock
