@@ -2,5 +2,4 @@
 .git
 tests
 evaluation
-mp_objects
 **/__pycache__

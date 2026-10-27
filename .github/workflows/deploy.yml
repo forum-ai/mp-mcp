@@ -36,4 +36,5 @@ jobs:
           aws ecs update-express-gateway-service \
             --service-arn "${{ vars.ECS_SERVICE_ARN }}" \
             --primary-container "{\"image\":\"$IMAGE\",\"containerPort\":8000,\"environment\":[{\"name\":\"MP_MCP_HOSTED\",\"value\":\"1\"},{\"name\":\"MP_MCP_PUBLIC_URL\",\"value\":\"${{ vars.PUBLIC_URL }}\"}]}" \
-            --monitor-resources
+            --cpu 1 --memory 2 --health-check-path /health \
+            --monitor-resources --monitor-mode TEXT-ONLY

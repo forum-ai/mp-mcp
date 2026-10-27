@@ -24,14 +24,14 @@ query("/materials/summary/", fields=["material_id", "formula_pretty", "band_gap"
 
 and for a structure file, `get_object("get_structure_by_material_id", {"material_id": "mp-149", "conventional_unit_cell": true}, format="cif")`.
 
-Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,400 characters, so connecting the server costs a conversation about 1,100 tokens.
+Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens.
 
 ## Design
 
 Each choice below follows from what an AI assistant needs in order to answer a materials question correctly, and from what goes wrong when it does not have it.
 
 - **The API describes itself; this repository writes none of it down.** Endpoints, filters, field names and their descriptions are read from MP's OpenAPI spec at startup, and object methods from the installed `mp-api`. MP adds endpoints and fields with every release; a hand-written tool list goes stale and silently hides data, while a tool generated from the live spec cannot drift from it.
-- **Five general tools, not one per endpoint.** A client pays for the tool listing in context on every conversation. Thirty-seven endpoints with 846 parameters as separate tools would cost tens of thousands of tokens and still leave filters out; `list_endpoints`, `describe_endpoint` and `query` cost about 1,100 tokens and reach all of it, and the model reads the details of only the endpoint it needs, when it needs them.
+- **Five general tools, not one per endpoint.** A client pays for the tool listing in context on every conversation. Thirty-seven endpoints with 846 parameters as separate tools would cost tens of thousands of tokens and still leave filters out; the seven tools together cost about 1,150 tokens and reach all of it, and the model reads the details of only the endpoint it needs, when it needs them.
 - **Everything needed to form a correct call is returned as text the model can read.** Filter names with MP's own descriptions, field names, whether the endpoint sorts, whether its fields are documented. REST APIs ignore parameters they do not know, so a guessed filter name produces a plausible but wrong answer with no error; a model that can see the real names does not have to guess.
 - **The model chooses fields and limits; the server bounds them.** Rows, characters, time and object size all have ceilings, and when a result is cut the response says so and how to narrow it. An unbounded result floods the conversation and ends it; a bounded one with a note lets the model ask again more precisely.
 - **Objects come in two registers.** Band structures, densities of states, phonons, phase diagrams and Wulff shapes are not tables. The summary answers the question in the chat (gap, transition, imaginary modes, stable phases) with the plot a person would draw; the JSON is the complete pymatgen object for an agent that continues in Python; a structure can also come as CIF or POSCAR, since that is how people hand structures to other programs.
@@ -208,6 +208,7 @@ One task is enough for a group, and it keeps the download links for large object
 ```
 aws ecs update-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN \
   --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"SERVICE_URL"}]}' \
+  --cpu 1 --memory 2 --health-check-path /health \
   --monitor-resources
 ```
 
@@ -224,7 +225,7 @@ should print something like `{"status":"ok","endpoints":37,"object_methods":36,"
 - Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (an IAM user allowed to push to the ECR repository and update the ECS service)
 - Variables: `AWS_DEPLOY` = `true`, `AWS_REGION` = `us-east-2`, `ECR_REPOSITORY` = `mp-mcp`, `ECS_SERVICE_ARN` = `SERVICE_ARN`, `PUBLIC_URL` = `SERVICE_URL`
 
-To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag.
+To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag. Every update repeats `--cpu`, `--memory` and `--health-check-path`, because AWS does not document whether an update that omits them keeps the old values.
 
 **Step 10. Use your own domain name (optional).** To serve this from a name you own, such as `mp-mcp.materialscopilot.org`, point that name at `SERVICE_URL` in your DNS provider. If an older service was behind that name, retire it once clients have moved.
 
