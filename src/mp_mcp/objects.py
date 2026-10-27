@@ -57,27 +57,27 @@ def _first_line(fn: Callable) -> str:
 def discover() -> dict[str, Callable]:
     """Every public get_* method on MPRester and on each route under it, by dotted name.
     Needs no network: the client is built offline, only to walk its route tree."""
+    found: dict[str, Callable] = {}
     with warnings.catch_warnings():  # mp-api's own deprecation and legacy-route notices while walking
         warnings.simplefilter("ignore")
         mpr = _client("x" * 32, offline=True)
-    found: dict[str, Callable] = {}
-    for name in dir(mpr):
-        if name.startswith("get_") and name not in SKIP:
-            found[name] = getattr(type(mpr), name)
-    for group in ("materials", "molecules"):
-        g = getattr(mpr, group, None)
-        for route in dir(g) if g is not None else []:
-            if route.startswith("_"):
-                continue
-            try:
-                r = getattr(g, route)
-            except Exception:
-                continue
-            if not hasattr(r, "search"):
-                continue
-            for name in dir(r):
-                if name.startswith("get_") and name not in SKIP:
-                    found[f"{group}.{route}.{name}"] = getattr(r, name)
+        for name in dir(mpr):
+            if name.startswith("get_") and name not in SKIP:
+                found[name] = getattr(type(mpr), name)
+        for group in ("materials", "molecules"):
+            g = getattr(mpr, group, None)
+            for route in dir(g) if g is not None else []:
+                if route.startswith("_"):
+                    continue
+                try:
+                    r = getattr(g, route)  # routes are built lazily here, and some warn
+                except Exception:
+                    continue
+                if not hasattr(r, "search"):
+                    continue
+                for name in dir(r):
+                    if name.startswith("get_") and name not in SKIP:
+                        found[f"{group}.{route}.{name}"] = getattr(r, name)
     return found
 
 
@@ -134,6 +134,8 @@ def summarize(obj: Any) -> tuple[str, bytes | None]:
 
     matplotlib.use("Agg")
     from pymatgen.analysis.phase_diagram import PhaseDiagram
+    from pymatgen.analysis.pourbaix_diagram import PourbaixEntry
+    from pymatgen.analysis.wulff import WulffShape
     from pymatgen.core import Structure
     from pymatgen.electronic_structure.bandstructure import BandStructure
     from pymatgen.electronic_structure.dos import Dos
@@ -207,6 +209,22 @@ def summarize(obj: Any) -> tuple[str, bytes | None]:
         s = obj.structure
         return (f"{type(obj).__name__} for {s.composition.reduced_formula} ({len(s)} sites): grid {'x'.join(map(str, obj.dim))}, "
                 f"{len(obj.data)} data set(s) ({', '.join(obj.data)}). Ask for json to get the whole grid; it is large."), None
+    if isinstance(obj, WulffShape):
+        facets = sorted(obj.miller_energy_dict.items(), key=lambda kv: -obj.area_fraction_dict.get(kv[0], 0))
+        lines = [f"Wulff shape of {obj.structure.composition.reduced_formula}: weighted surface energy "
+                 f"{obj.weighted_surface_energy:.3f} J/m2, anisotropy {obj.anisotropy:.3f}, shape factor {obj.shape_factor:.3f}",
+                 "  facet  surface energy (J/m2)  area fraction"]
+        lines += [f"  {''.join(map(str, hkl)):>5}  {e:21.3f}  {obj.area_fraction_dict.get(hkl, 0):13.3f}" for hkl, e in facets]
+        try:
+            return "\n".join(lines), _png(obj.get_plot())
+        except Exception:
+            return "\n".join(lines), None
+    if isinstance(obj, list) and obj and all(isinstance(e, PourbaixEntry) for e in obj):
+        rows = [f"  {e.entry_id or '-':>14}  {e.name:>22}  E {e.energy:8.3f} eV  npH {e.npH:5.1f}  nPhi {e.nPhi:5.1f}  nH2O {e.nH2O:5.1f}"
+                for e in obj[:60]]
+        more = f"\n  ... {len(obj) - 60} more; ask for json for all" if len(obj) > 60 else ""
+        return (f"{len(obj)} Pourbaix entries (solids and aqueous ions; build the diagram with "
+                f"pymatgen.analysis.pourbaix_diagram.PourbaixDiagram from the json)\n" + "\n".join(rows) + more), None
     if isinstance(obj, list) and obj and all(isinstance(e, ComputedEntry) for e in obj):
         rows = [f"  {e.entry_id}  {e.composition.reduced_formula}  {e.energy_per_atom:.4f} eV/atom" for e in obj[:50]]
         more = f"\n  ... {len(obj) - 50} more; ask for json for all" if len(obj) > 50 else ""

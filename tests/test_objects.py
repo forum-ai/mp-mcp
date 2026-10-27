@@ -93,3 +93,17 @@ def test_emmet_models_are_unwrapped_to_pymatgen():
     assert objects.unwrap({"plain": 1}) == {"plain": 1}
     text, png = objects.summarize(objects.unwrap(FakePhononDOS()))
     assert text.startswith("Phonon DOS")
+
+
+def test_wulff_and_pourbaix_summaries():
+    from pymatgen.analysis.pourbaix_diagram import PourbaixEntry
+    from pymatgen.analysis.wulff import WulffShape
+    from pymatgen.core import Lattice
+    from pymatgen.entries.computed_entries import ComputedEntry
+
+    w = WulffShape(Lattice.cubic(3.0), [(1, 0, 0), (1, 1, 1)], [1.0, 0.8])
+    text, png = objects.summarize(w)
+    assert "weighted surface energy" in text and "111" in text
+    pe = [PourbaixEntry(ComputedEntry("ZnO", -5.0), entry_id="mp-1"), PourbaixEntry(ComputedEntry("Zn", 0.0), entry_id="mp-2")]
+    text, png = objects.summarize(pe)
+    assert text.startswith("2 Pourbaix entries") and "mp-1" in text and png is None
