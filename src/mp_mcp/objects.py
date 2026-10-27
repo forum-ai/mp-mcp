@@ -18,6 +18,7 @@ import os
 import secrets
 import time
 import warnings
+from functools import cache
 from pathlib import Path
 from typing import Any, Callable
 from unittest import mock
@@ -30,12 +31,14 @@ MAX_OBJECT_BYTES = int(os.environ.get("MP_MCP_MAX_OBJECT_BYTES", 50_000_000))
 STORE_BYTES = int(os.environ.get("MP_MCP_STORE_BYTES", 256_000_000))
 SKIP = {"get_data_by_id", "get_database_version", "get_emmet_version", "get_download_info"}
 STRUCTURE_FORMATS = ("cif", "poscar")
+LIST_ROWS = 50  # rows shown when summarizing a list of objects
 
 
 class TooLarge(Exception):
     pass
 
 
+# ---------------------------------------------------------------- the client and its methods
 def _client(api_key: str, offline: bool = False):
     """An MPRester. MPRester.__init__ calls the API's /heartbeat twice (cached per process);
     with offline=True those calls are skipped, so the route tree can be walked with no network."""
@@ -49,36 +52,33 @@ def _client(api_key: str, offline: bool = False):
         return MPRester(api_key=api_key, mute_progress_bars=True)
 
 
-def _first_line(fn: Callable) -> str:
-    doc = inspect.getdoc(fn) or ""
-    return doc.strip().split("\n\n")[0].replace("\n", " ")
+def _getters(obj: Any, prefix: str = "") -> dict[str, Callable]:
+    """The public get_* methods of one object, bound, by (prefixed) name."""
+    return {f"{prefix}{n}": getattr(obj, n) for n in dir(obj) if n.startswith("get_") and n not in SKIP}
 
 
 def discover() -> dict[str, Callable]:
     """Every public get_* method on MPRester and on each route under it, by dotted name.
     Needs no network: the client is built offline, only to walk its route tree."""
-    found: dict[str, Callable] = {}
     with warnings.catch_warnings():  # mp-api's own deprecation and legacy-route notices while walking
         warnings.simplefilter("ignore")
         mpr = _client("x" * 32, offline=True)
-        for name in dir(mpr):
-            if name.startswith("get_") and name not in SKIP:
-                found[name] = getattr(type(mpr), name)
+        found = _getters(mpr)
         for group in ("materials", "molecules"):
             g = getattr(mpr, group, None)
             for route in dir(g) if g is not None else []:
-                if route.startswith("_"):
-                    continue
                 try:
                     r = getattr(g, route)  # routes are built lazily here, and some warn
                 except Exception:
                     continue
-                if not hasattr(r, "search"):
-                    continue
-                for name in dir(r):
-                    if name.startswith("get_") and name not in SKIP:
-                        found[f"{group}.{route}.{name}"] = getattr(r, name)
+                if not route.startswith("_") and hasattr(r, "search"):
+                    found |= _getters(r, f"{group}.{route}.")
     return found
+
+
+def _first_line(fn: Callable) -> str:
+    doc = inspect.getdoc(fn) or ""
+    return doc.strip().split("\n\n")[0].replace("\n", " ")
 
 
 def describe(found: dict[str, Callable], search: str = "") -> str:
@@ -86,7 +86,7 @@ def describe(found: dict[str, Callable], search: str = "") -> str:
     lines = []
     for name, fn in sorted(found.items()):
         try:
-            sig = str(inspect.signature(fn)).replace("(self, ", "(").replace("(self)", "()")
+            sig = str(inspect.signature(fn))
         except (TypeError, ValueError):
             sig = "(...)"
         line = f"{name}{sig}  {_first_line(fn)}"
@@ -116,120 +116,143 @@ def unwrap(obj: Any) -> Any:
 
 
 # ---------------------------------------------------------------- summaries
-def _png(fig_or_ax) -> bytes | None:
+def _png(plot: Callable[[], Any]) -> bytes | None:
+    """Run a pymatgen plotter and return its figure as PNG, or None if it fails. Plotters
+    return either an Axes (which has .figure) or a Figure."""
     try:
-        fig = getattr(fig_or_ax, "figure", None) or getattr(fig_or_ax, "get_figure", lambda: fig_or_ax)()
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+        import matplotlib
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
+        drawn = plot()
+        fig = getattr(drawn, "figure", drawn)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
         plt.close(fig)
         return buf.getvalue()
     except Exception:
         return None
 
 
-def summarize(obj: Any) -> tuple[str, bytes | None]:
-    import matplotlib
+def _band_structure(bs) -> str:
+    gap = bs.get_band_gap()
+    what = f"Band structure of {bs.structure.composition.reduced_formula}" if bs.structure is not None else "Band structure"
+    return (f"{what}\nband gap: {gap['energy']:.3f} eV, {'direct' if gap['direct'] else 'indirect'}, "
+            f"transition {gap['transition']}\nmetal: {bs.is_metal()}; Fermi level {bs.efermi:.3f} eV")
 
-    matplotlib.use("Agg")
-    from pymatgen.analysis.phase_diagram import PhaseDiagram
-    from pymatgen.analysis.pourbaix_diagram import PourbaixEntry
+
+def _dos_plot(dos):
+    from pymatgen.electronic_structure.plotter import DosPlotter
+
+    p = DosPlotter()
+    p.add_dos("Total", dos)
+    if hasattr(dos, "get_element_dos"):
+        p.add_dos_dict({str(k): v for k, v in dos.get_element_dos().items()})
+    return p.get_plot(xlim=(-8, 8))
+
+
+def _phonon_dos(dos) -> str:
+    rows = [f"T = {t} K: Cv {dos.cv(t):.3f} J/(K mol), S {dos.entropy(t):.3f} J/(K mol), "
+            f"F {dos.helmholtz_free_energy(t) / 1000:.3f} kJ/mol" for t in (100, 300, 600, 1000)]
+    return "Phonon DOS\n" + "\n".join(rows)
+
+
+def _phonon_dos_plot(dos):
+    from pymatgen.phonon.plotter import PhononDosPlotter
+
+    p = PhononDosPlotter()
+    p.add_dos("Total", dos)
+    return p.get_plot()
+
+
+def _phase_diagram(pd) -> str:
+    stable = sorted(pd.stable_entries, key=lambda e: e.composition.reduced_formula)
+    lines = [f"Phase diagram of {'-'.join(sorted(map(str, pd.elements)))}: {len(stable)} stable phases"]
+    lines += [f"  {e.composition.reduced_formula} ({getattr(e, 'entry_id', None) or 'no id'}): formation energy "
+              f"{pd.get_form_energy_per_atom(e):.3f} eV/atom" for e in stable]
+    return "\n".join(lines)
+
+
+def _structure(s) -> str:
+    a, b, c = s.lattice.abc
+    return (f"{s.composition.reduced_formula}, {s.get_space_group_info()[0]}, {len(s)} sites; "
+            f"a={a:.4f} b={b:.4f} c={c:.4f} Å; density {s.density:.3f} g/cm3. "
+            "Ask for format cif, poscar or json for the full structure.")
+
+
+def _volumetric(v) -> str:  # Chgcar and friends: never serialize the grid for a summary
+    s = v.structure
+    return (f"{type(v).__name__} for {s.composition.reduced_formula} ({len(s)} sites): grid {'x'.join(map(str, v.dim))}, "
+            f"{len(v.data)} data set(s) ({', '.join(v.data)}). Ask for json to get the whole grid; it is large.")
+
+
+def _wulff(w) -> str:  # WulffShape.structure is a one-atom placeholder, so no formula here
+    facets = sorted(w.miller_energy_dict.items(), key=lambda kv: -w.area_fraction_dict.get(kv[0], 0))
+    lines = [f"Wulff shape: weighted surface energy {w.weighted_surface_energy:.3f} J/m2, "
+             f"anisotropy {w.anisotropy:.3f}, shape factor {w.shape_factor:.3f}",
+             "  facet  surface energy (J/m2)  area fraction"]
+    lines += [f"  {''.join(map(str, hkl)):>5}  {e:21.3f}  {w.area_fraction_dict.get(hkl, 0):13.3f}" for hkl, e in facets]
+    return "\n".join(lines)
+
+
+@cache
+def _summaries() -> list[tuple[type, Callable[[Any], str], Callable[[Any], Any] | None]]:
+    """(type, text, plot) for each object type with a hand-written summary, in match order.
+    Imported once, on first use, since pymatgen is slow to import."""
+    from pymatgen.analysis.phase_diagram import PDPlotter, PhaseDiagram
     from pymatgen.analysis.wulff import WulffShape
     from pymatgen.core import Structure
     from pymatgen.electronic_structure.bandstructure import BandStructure
     from pymatgen.electronic_structure.dos import Dos
-    from pymatgen.entries.computed_entries import ComputedEntry
+    from pymatgen.electronic_structure.plotter import BSPlotter
     from pymatgen.io.common import VolumetricData
     from pymatgen.phonon.bandstructure import PhononBandStructureSymmLine
     from pymatgen.phonon.dos import PhononDos
+    from pymatgen.phonon.plotter import PhononBSPlotter
 
-    if isinstance(obj, BandStructure):
-        gap = obj.get_band_gap()
-        what = f"Band structure of {obj.structure.composition.reduced_formula}" if obj.structure is not None else "Band structure"
-        lines = [what,
-                 f"band gap: {gap['energy']:.3f} eV, {'direct' if gap['direct'] else 'indirect'}, transition {gap['transition']}",
-                 f"metal: {obj.is_metal()}; Fermi level {obj.efermi:.3f} eV"]
-        try:
-            from pymatgen.electronic_structure.plotter import BSPlotter
+    return [
+        (BandStructure, _band_structure, lambda o: BSPlotter(o).get_plot()),
+        (Dos, lambda o: f"Density of states; gap {o.get_gap():.3f} eV; Fermi level {o.efermi:.3f} eV", _dos_plot),
+        (PhononBandStructureSymmLine,
+         lambda o: (f"Phonon band structure; lowest frequency {float(o.bands.min()):.3f} THz; "
+                    f"imaginary modes: {o.has_imaginary_freq()}; highest {float(o.bands.max()):.2f} THz"),
+         lambda o: PhononBSPlotter(o).get_plot()),
+        (PhononDos, _phonon_dos, _phonon_dos_plot),
+        (PhaseDiagram, _phase_diagram, lambda o: PDPlotter(o, backend="matplotlib").get_plot()),
+        (Structure, _structure, None),
+        (VolumetricData, _volumetric, None),
+        (WulffShape, _wulff, lambda o: o.get_plot()),
+    ]
 
-            return "\n".join(lines), _png(BSPlotter(obj).get_plot())
-        except Exception:
-            return "\n".join(lines), None
-    if isinstance(obj, Dos):
-        lines = [f"Density of states; gap {obj.get_gap():.3f} eV; Fermi level {obj.efermi:.3f} eV"]
-        try:
-            from pymatgen.electronic_structure.plotter import DosPlotter
 
-            p = DosPlotter()
-            p.add_dos("Total", obj)
-            if hasattr(obj, "get_element_dos"):
-                p.add_dos_dict({str(k): v for k, v in obj.get_element_dos().items()})
-            return "\n".join(lines), _png(p.get_plot(xlim=(-8, 8)))
-        except Exception:
-            return "\n".join(lines), None
-    if isinstance(obj, PhononBandStructureSymmLine):
-        fmin = float(obj.bands.min())
-        lines = [f"Phonon band structure; lowest frequency {fmin:.3f} THz; "
-                 f"imaginary modes: {obj.has_imaginary_freq()}; highest {float(obj.bands.max()):.2f} THz"]
-        try:
-            from pymatgen.phonon.plotter import PhononBSPlotter
+@cache
+def _rows() -> list[tuple[type, str, Callable[[Any], str]]]:
+    """(type, what to call them, one-line row) for lists of objects."""
+    from pymatgen.analysis.pourbaix_diagram import PourbaixEntry
+    from pymatgen.entries.computed_entries import ComputedEntry
 
-            return "\n".join(lines), _png(PhononBSPlotter(obj).get_plot())
-        except Exception:
-            return "\n".join(lines), None
-    if isinstance(obj, PhononDos):
-        rows = [f"T = {t} K: Cv {obj.cv(t):.3f} J/(K mol), S {obj.entropy(t):.3f} J/(K mol), "
-                f"F {obj.helmholtz_free_energy(t) / 1000:.3f} kJ/mol" for t in (100, 300, 600, 1000)]
-        try:
-            from pymatgen.phonon.plotter import PhononDosPlotter
+    return [
+        (PourbaixEntry, "Pourbaix entries (solids and aqueous ions; build the diagram with "
+                        "pymatgen.analysis.pourbaix_diagram.PourbaixDiagram from the json)",
+         lambda e: (f"{str(e.entry_id or '-'):>14}  {str(e.name):>22}  E {float(e.energy):8.3f} eV  "
+                    f"npH {float(e.npH):5.1f}  nPhi {float(e.nPhi):5.1f}  nH2O {float(e.nH2O):5.1f}")),
+        (ComputedEntry, "entries", lambda e: f"{e.entry_id}  {e.composition.reduced_formula}  {e.energy_per_atom:.4f} eV/atom"),
+    ]
 
-            p = PhononDosPlotter()
-            p.add_dos("Total", obj)
-            return "Phonon DOS\n" + "\n".join(rows), _png(p.get_plot())
-        except Exception:
-            return "Phonon DOS\n" + "\n".join(rows), None
-    if isinstance(obj, PhaseDiagram):
-        stable = sorted(obj.stable_entries, key=lambda e: e.composition.reduced_formula)
-        lines = [f"Phase diagram of {'-'.join(sorted(map(str, obj.elements)))}: {len(stable)} stable phases"]
-        lines += [f"  {e.composition.reduced_formula} ({getattr(e, 'entry_id', None) or 'no id'}): formation energy "
-                  f"{obj.get_form_energy_per_atom(e):.3f} eV/atom" for e in stable]
-        try:
-            from pymatgen.analysis.phase_diagram import PDPlotter
 
-            return "\n".join(lines), _png(PDPlotter(obj, backend="matplotlib").get_plot())
-        except Exception:
-            return "\n".join(lines), None
-    if isinstance(obj, Structure):
-        a, b, c = obj.lattice.abc
-        return (f"{obj.composition.reduced_formula}, {obj.get_space_group_info()[0]}, {len(obj)} sites; "
-                f"a={a:.4f} b={b:.4f} c={c:.4f} Å; density {obj.density:.3f} g/cm3. "
-                "Ask for format cif, poscar or json for the full structure."), None
-    if isinstance(obj, VolumetricData):  # Chgcar and friends: never serialize the grid for a summary
-        s = obj.structure
-        return (f"{type(obj).__name__} for {s.composition.reduced_formula} ({len(s)} sites): grid {'x'.join(map(str, obj.dim))}, "
-                f"{len(obj.data)} data set(s) ({', '.join(obj.data)}). Ask for json to get the whole grid; it is large."), None
-    if isinstance(obj, WulffShape):
-        facets = sorted(obj.miller_energy_dict.items(), key=lambda kv: -obj.area_fraction_dict.get(kv[0], 0))
-        # WulffShape.structure is a placeholder (one H atom), so the material is not named here
-        lines = [f"Wulff shape: weighted surface energy {obj.weighted_surface_energy:.3f} J/m2, "
-                 f"anisotropy {obj.anisotropy:.3f}, shape factor {obj.shape_factor:.3f}",
-                 "  facet  surface energy (J/m2)  area fraction"]
-        lines += [f"  {''.join(map(str, hkl)):>5}  {e:21.3f}  {obj.area_fraction_dict.get(hkl, 0):13.3f}" for hkl, e in facets]
-        try:
-            return "\n".join(lines), _png(obj.get_plot())
-        except Exception:
-            return "\n".join(lines), None
-    if isinstance(obj, list) and obj and all(isinstance(e, PourbaixEntry) for e in obj):
-        rows = [f"  {str(e.entry_id or '-'):>14}  {str(e.name):>22}  E {float(e.energy):8.3f} eV  npH {float(e.npH):5.1f}  "
-                f"nPhi {float(e.nPhi):5.1f}  nH2O {float(e.nH2O):5.1f}" for e in obj[:60]]  # entry_id is an EntryID object, not str
-        more = f"\n  ... {len(obj) - 60} more; ask for json for all" if len(obj) > 60 else ""
-        return (f"{len(obj)} Pourbaix entries (solids and aqueous ions; build the diagram with "
-                f"pymatgen.analysis.pourbaix_diagram.PourbaixDiagram from the json)\n" + "\n".join(rows) + more), None
-    if isinstance(obj, list) and obj and all(isinstance(e, ComputedEntry) for e in obj):
-        rows = [f"  {e.entry_id}  {e.composition.reduced_formula}  {e.energy_per_atom:.4f} eV/atom" for e in obj[:50]]
-        more = f"\n  ... {len(obj) - 50} more; ask for json for all" if len(obj) > 50 else ""
-        return f"{len(obj)} entries\n" + "\n".join(rows) + more, None
+def summarize(obj: Any) -> tuple[str, bytes | None]:
+    """A few readable lines about the object, plus a PNG plot where pymatgen draws one."""
+    for cls, text, plot in _summaries():
+        if isinstance(obj, cls):
+            return text(obj), _png(lambda: plot(obj)) if plot else None
+    if isinstance(obj, list) and obj:
+        for cls, what, row in _rows():
+            if all(isinstance(e, cls) for e in obj):
+                lines = [f"{len(obj)} {what}"] + [f"  {row(e)}" for e in obj[:LIST_ROWS]]
+                if len(obj) > LIST_ROWS:
+                    lines.append(f"  ... {len(obj) - LIST_ROWS} more; ask for json for all")
+                return "\n".join(lines), None
     text = json.dumps(obj, cls=MontyEncoder, default=str)
     if len(text) > 4000:
         text = text[:4000] + f"... [{len(text):,} characters in all; ask for json]"
@@ -237,14 +260,15 @@ def summarize(obj: Any) -> tuple[str, bytes | None]:
 
 
 def structure_text(obj: Any, fmt: str) -> str:
-    """A Structure (or a list of them) as cif or poscar text."""
+    """A Structure, or a list of them, as cif or poscar text."""
     from pymatgen.core import Structure
 
-    if isinstance(obj, list) and obj and all(isinstance(s, Structure) for s in obj):
-        return "\n\n".join(f"# structure {i + 1} of {len(obj)}\n{s.to(fmt=fmt)}" for i, s in enumerate(obj))
-    if not isinstance(obj, Structure):
+    structures = obj if isinstance(obj, list) else [obj]
+    if not structures or not all(isinstance(s, Structure) for s in structures):
         raise TypeError(f"format {fmt} is only for structures; this method returned a {type(obj).__name__}. Use summary or json.")
-    return obj.to(fmt=fmt)
+    if len(structures) == 1:
+        return structures[0].to(fmt=fmt)
+    return "\n\n".join(f"# structure {i + 1} of {len(structures)}\n{s.to(fmt=fmt)}" for i, s in enumerate(structures))
 
 
 # ---------------------------------------------------------------- full JSON
@@ -255,14 +279,14 @@ class Store:
     def __init__(self) -> None:
         self._items: dict[str, tuple[float, bytes, str]] = {}
 
-    def _bytes(self) -> int:
-        return sum(len(v[1]) for v in self._items.values())
-
     def put(self, data: bytes, name: str) -> str:
         now = time.time()
         self._items = {k: v for k, v in self._items.items() if v[0] > now}
-        while self._items and self._bytes() + len(data) > STORE_BYTES:
-            del self._items[min(self._items, key=lambda k: self._items[k][0])]
+        held = sum(len(v[1]) for v in self._items.values())
+        for token in sorted(self._items, key=lambda k: self._items[k][0]):  # oldest first
+            if held + len(data) <= STORE_BYTES:
+                break
+            held -= len(self._items.pop(token)[1])
         token = secrets.token_urlsafe(24)
         self._items[token] = (now + LINK_TTL, data, name)
         return token

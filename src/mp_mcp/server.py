@@ -41,6 +41,10 @@ ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "legacy")  # MP stores AlphaIDs (
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 
+# The query tool's own arguments, and the query-string names an endpoint may declare for them.
+# An argument is sent only under a name the endpoint's spec lists; the first match wins.
+CONTROL = {"fields": ("_fields",), "limit": ("_limit", "limit"), "sort": ("_sort_fields",), "id_format": ("id_format",)}
+
 
 def _t(text: str) -> TextContent:
     return TextContent(type="text", text=text)
@@ -68,6 +72,30 @@ def _coerce(v: Any) -> Any:
     return v
 
 
+def _rows(payload: Any) -> tuple[list, Any]:
+    """The documents and the total count from whatever JSON the API returned: normally
+    {"data": [...], "meta": {"total_doc": n}}, but a bare list or a single document also work."""
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    rows = data if isinstance(data, list) else [data] if data else []
+    total = (payload.get("meta") or {}).get("total_doc") if isinstance(payload, dict) else None
+    return rows, total
+
+
+def _fit(rows: list, budget: int) -> tuple[str, int, str]:
+    """As many leading rows as fit in budget characters, as a JSON list, with a note when
+    some were left out; a first row that alone exceeds the budget is cut."""
+    parts = [json.dumps(r, default=str) for r in rows]
+    shown, used = 0, 2
+    while shown < len(parts) and used + len(parts[shown]) + (2 if shown else 0) <= budget:
+        used += len(parts[shown]) + (2 if shown else 0)
+        shown += 1
+    if parts and shown == 0:
+        return (f"[{parts[0][:budget]}... [{len(parts[0]):,} characters; ask for fewer fields]]", 1,
+                " Cut to 1 row and truncated it to fit; ask for fewer fields.")
+    note = "" if shown == len(parts) else f" Cut to {shown} rows to fit; ask for fewer fields or rows."
+    return "[" + ", ".join(parts[:shown]) + "]", shown, note
+
+
 def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMCP:
     api_spec, source = spec.load_spec(spec_url)
     eps = spec.endpoints(api_spec)
@@ -88,6 +116,10 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             return api_key()
         except MissingKey as exc:
             raise ToolError(str(exc)) from None
+
+    def control(ep: spec.Endpoint, arg: str) -> str | None:
+        """The query-string name this endpoint declares for one of query's arguments, or None."""
+        return next((n for n in CONTROL[arg] if ep.has_param(n)), None)
 
     @mcp.tool(annotations=READ_ONLY)
     def list_endpoints():
@@ -117,7 +149,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         if ep.body:
             out += ["", f"Request body: {ep.body.get('description') or ep.body.get('title') or 'JSON object'}"]
         out += ["", "Sorting: " + ("pass sort='-field' to query; also filter on that field (e.g. field_min) so documents "
-                                   "without it are left out." if ep.has_param("_sort_fields")
+                                   "without it are left out." if control(ep, "sort")
                                    else "not supported by this endpoint; sort the rows yourself.")]
         if not ep.fields:
             out += ["", "Returned fields: not described in MP's spec. query returns the whole documents; leave fields empty."]
@@ -140,21 +172,17 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         MP API (describe_endpoint lists them)."""
         ep = endpoint(path)
         q: dict[str, Any] = {k: _coerce(v) for k, v in (params or {}).items() if v is not None}
-        if fields and ep.has_param("_fields"):
-            q["_fields"] = ",".join(fields)
-        elif fields and not ep.has_param("_fields") and ep.method == "GET":
-            q["_fields"] = ",".join(fields)  # a few GET endpoints omit it from the spec but honor it
-        if ID_FORMAT and ep.has_param("id_format"):
-            q.setdefault("id_format", ID_FORMAT)
-        if ep.has_param("_limit"):
-            q["_limit"] = min(limit, MAX_ROWS)
-        elif ep.has_param("limit"):
-            q.setdefault("limit", min(limit, MAX_ROWS))
+        if fields and (name := control(ep, "fields")):
+            q[name] = ",".join(fields)
+        if name := control(ep, "limit"):
+            q[name] = min(limit, MAX_ROWS)
         if sort:
-            if not ep.has_param("_sort_fields"):
+            if not (name := control(ep, "sort")):
                 raise ToolError(f"{ep.path} does not support sorting. Fetch the rows and sort them yourself, "
                                 "or sort on /materials/summary/, which carries most properties and supports sort.")
-            q["_sort_fields"] = sort
+            q[name] = sort
+        if ID_FORMAT and (name := control(ep, "id_format")):
+            q.setdefault(name, ID_FORMAT)
         headers = {"x-api-key": key(), "user-agent": "mp-mcp"}
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             try:
@@ -167,25 +195,10 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         if r.status_code >= 400:
             raise ToolError(f"MP API returned {r.status_code}: {r.text[:500]}")
         try:
-            payload = r.json()
+            rows, total = _rows(r.json())
         except ValueError:
             raise ToolError(f"MP API returned something that is not JSON (status {r.status_code}): {r.text[:300]}") from None
-        if isinstance(payload, list):
-            payload = {"data": payload}
-        if not isinstance(payload, dict):
-            raise ToolError(f"Unexpected response from the MP API: {str(payload)[:300]}")
-        rows = payload.get("data")
-        rows = rows if isinstance(rows, list) else ([rows] if rows else [])
-        total = (payload.get("meta") or {}).get("total_doc")
-        text = json.dumps(rows, default=str)
-        shown = len(rows)
-        while len(text) > MAX_CHARS and shown > 1:
-            shown = max(1, shown // 2)
-            text = json.dumps(rows[:shown], default=str)
-        note = "" if shown == len(rows) else f" Cut to {shown} rows to fit; ask for fewer fields or rows."
-        if len(text) > MAX_CHARS:  # one row is still too big
-            text = text[:MAX_CHARS] + f"... [{len(text):,} characters; ask for fewer fields]"
-            note += " The row was truncated."
+        text, shown, note = _fit(rows, MAX_CHARS)
         return f"{total if total is not None else '?'} matches; {shown} returned.{note}\n{text}"
 
     @mcp.tool(annotations=READ_ONLY)
