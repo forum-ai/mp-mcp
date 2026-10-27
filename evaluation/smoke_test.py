@@ -12,13 +12,22 @@ request fails.
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
+import warnings
 
 from fastmcp import Client
 
 from mp_mcp.server import build_server
+
+# Four cases send bad input on purpose; fastmcp logs each refused call at ERROR level, and
+# matplotlib comments on the phase-diagram plot. Neither is a result, so keep them out.
+logging.getLogger("fastmcp").setLevel(logging.CRITICAL)
+logging.getLogger("FastMCP").setLevel(logging.CRITICAL)
+logging.getLogger("matplotlib").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore")
 
 ONLY = (sys.argv[1] if len(sys.argv) > 1 else "").lower()
 results = []
