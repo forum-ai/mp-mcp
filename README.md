@@ -26,6 +26,22 @@ and for a structure file, `get_object("get_structure_by_material_id", {"material
 
 Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,400 characters, so connecting the server costs a conversation about 1,100 tokens.
 
+## Design
+
+Each choice below follows from what an AI assistant needs in order to answer a materials question correctly, and from what goes wrong when it does not have it.
+
+- **The API describes itself; this repository writes none of it down.** Endpoints, filters, field names and their descriptions are read from MP's OpenAPI spec at startup, and object methods from the installed `mp-api`. MP adds endpoints and fields with every release; a hand-written tool list goes stale and silently hides data, while a tool generated from the live spec cannot drift from it.
+- **Five general tools, not one per endpoint.** A client pays for the tool listing in context on every conversation. Thirty-seven endpoints with 846 parameters as separate tools would cost tens of thousands of tokens and still leave filters out; `list_endpoints`, `describe_endpoint` and `query` cost about 1,100 tokens and reach all of it, and the model reads the details of only the endpoint it needs, when it needs them.
+- **Everything needed to form a correct call is returned as text the model can read.** Filter names with MP's own descriptions, field names, whether the endpoint sorts, whether its fields are documented. REST APIs ignore parameters they do not know, so a guessed filter name produces a plausible but wrong answer with no error; a model that can see the real names does not have to guess.
+- **The model chooses fields and limits; the server bounds them.** Rows, characters, time and object size all have ceilings, and when a result is cut the response says so and how to narrow it. An unbounded result floods the conversation and ends it; a bounded one with a note lets the model ask again more precisely.
+- **Objects come in two registers.** Band structures, densities of states, phonons, phase diagrams and Wulff shapes are not tables. The summary answers the question in the chat (gap, transition, imaginary modes, stable phases) with the plot a person would draw; the JSON is the complete pymatgen object for an agent that continues in Python; a structure can also come as CIF or POSCAR, since that is how people hand structures to other programs.
+- **Keys belong to callers.** An MP key is personal: it carries the holder's rate limit and their access to restricted datasets. The hosted server therefore has no key of its own and forwards each request under the caller's header, so one user can never spend or expose another's; the local server finds a key the way `mp-api` does, so existing users need no setup.
+- **Read-only, and nothing persists.** The server can change nothing at MP, writes nothing about its users, and download links expire. Anything reachable from a chat window should be safe to point an untrusted conversation at.
+- **Errors are loud and in plain words; nothing fails silently.** Asking to sort an endpoint that cannot sort is an error, not an unsorted list, because the model would otherwise report the list as sorted. Timeouts, bad arguments and upstream failures say what happened and what to change.
+- **Identifiers as people know them.** MP stores AlphaIDs; responses are requested in the `mp-149` form wherever the API allows, because that is the form in papers, on the website and in users' notes.
+- **Startup never depends on the network.** The spec falls back to a bundled snapshot and object discovery runs offline, so an MP outage degrades answers rather than taking every conversation down with the server.
+- **Methodology comes from MP's documentation, not from a paraphrase.** How a hull energy or a band gap is computed changes between releases; the docs tools read MP's documentation server live.
+
 ## Your API key
 
 Every request runs under the caller's own MP API key (get one at <https://next-gen.materialsproject.org/api>).
@@ -109,7 +125,7 @@ If the live spec cannot be fetched at startup, the server uses the snapshot in `
 
 ## Deploy on AWS
 
-This runs the server on Amazon ECS Express Mode, the same service the current chatbot runs on (its address ends in `.ecs.us-east-2.on.aws`). Express Mode creates the load balancer, HTTPS certificate, scaling and logs itself. Every command below is run from a terminal in a clone of this repository, one at a time, in order. Replace `ACCOUNT_ID` with the 12-digit AWS account number everywhere it appears (step 1 prints it).
+This runs the server on Amazon ECS Express Mode, which gives it an address ending in `.ecs.us-east-2.on.aws`. Express Mode creates the load balancer, HTTPS certificate, scaling and logs itself. Every command below is run from a terminal in a clone of this repository, one at a time, in order. Replace `ACCOUNT_ID` with the 12-digit AWS account number everywhere it appears (step 1 prints it).
 
 **What you need before you start:**
 
@@ -210,7 +226,7 @@ should print something like `{"status":"ok","endpoints":37,"object_methods":36,"
 
 To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag.
 
-**Step 10. Keep the old address (optional).** To serve this from `mp-mcp.materialscopilot.org` like the current server, point that name at `SERVICE_URL` the same way it points at the current load balancer today. Retire the old service once clients have moved.
+**Step 10. Use your own domain name (optional).** To serve this from a name you own, such as `mp-mcp.materialscopilot.org`, point that name at `SERVICE_URL` in your DNS provider. If an older service was behind that name, retire it once clients have moved.
 
 **When something goes wrong.** `aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN` shows the status; the logs are in CloudWatch, in the log group that output names. A 503 from the address means no healthy task: check the logs for a startup error, and check that `SERVICE_URL/health` answers. A server that cannot reach the MP spec still starts, from the bundled snapshot, and `/health` then reports `"spec": "bundled snapshot"`. To remove everything, `aws ecs delete-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --monitor-resources`.
 
@@ -235,7 +251,7 @@ The only hand-written parts are the server's instruction paragraph, the summary 
 
 ## Evaluating it
 
-`evaluation/` holds a live smoke test of every tool and twelve questions, from a control (silicon) through screens, rankings and objects the old MP MCP could not express (a sorted list of the stiffest binary oxides, silicon's phonon dispersion, a CIF of the conventional cell). With your key exported:
+`evaluation/` holds a live smoke test of every tool and twelve questions, from a control (silicon) through property screens, rankings and whole objects (a sorted list of the stiffest binary oxides, silicon's phonon dispersion, a CIF of the conventional cell). With your key exported:
 
 ```
 export MP_API_KEY=your_key_here
@@ -243,4 +259,4 @@ uv run evaluation/smoke_test.py      # every tool against the live API, pass/fai
 uv run evaluation/answer_key.py      # writes evaluation/answer_key.md, the correct answers for today's database
 ```
 
-`evaluation/README.md` has the prompts, what each one tests, and the scoring sheet for running the same model with no tools, with the old server and with this one.
+`evaluation/README.md` has the prompts, what each one tests, and the scoring sheet for running the same model with no tools, with other MP connectors and with this one.
