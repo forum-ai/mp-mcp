@@ -103,7 +103,12 @@ def test_wulff_and_pourbaix_summaries():
 
     w = WulffShape(Lattice.cubic(3.0), [(1, 0, 0), (1, 1, 1)], [1.0, 0.8])
     text, png = objects.summarize(w)
-    assert "weighted surface energy" in text and "111" in text
-    pe = [PourbaixEntry(ComputedEntry("ZnO", -5.0), entry_id="mp-1"), PourbaixEntry(ComputedEntry("Zn", 0.0), entry_id="mp-2")]
+    assert "weighted surface energy" in text and "111" in text and "H2" not in text
+
+    class EntryID:  # what mp-api puts in entry_id: an object, not a str
+        def __str__(self):
+            return "mp-1"
+
+    pe = [PourbaixEntry(ComputedEntry("ZnO", -5.0), entry_id=EntryID()), PourbaixEntry(ComputedEntry("Zn", 0.0), entry_id="mp-2")]
     text, png = objects.summarize(pe)
     assert text.startswith("2 Pourbaix entries") and "mp-1" in text and png is None

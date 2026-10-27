@@ -129,7 +129,7 @@ This runs the server on Amazon ECS Express Mode, which gives it an address endin
 
 **What you need before you start:**
 
-- The [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), logged in to the account that runs the current server (`aws configure`, then `aws sts get-caller-identity` prints your account without error).
+- The [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), logged in to your AWS account (`aws configure`, then `aws sts get-caller-identity` prints your account without error).
 - [Docker Desktop](https://docs.docker.com/desktop/), running (the whale icon in the menu bar).
 - The account's default VPC in `us-east-2` must still exist (it does unless someone deleted it; Express Mode puts its load balancer there).
 

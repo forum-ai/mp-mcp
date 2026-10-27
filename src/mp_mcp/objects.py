@@ -211,8 +211,9 @@ def summarize(obj: Any) -> tuple[str, bytes | None]:
                 f"{len(obj.data)} data set(s) ({', '.join(obj.data)}). Ask for json to get the whole grid; it is large."), None
     if isinstance(obj, WulffShape):
         facets = sorted(obj.miller_energy_dict.items(), key=lambda kv: -obj.area_fraction_dict.get(kv[0], 0))
-        lines = [f"Wulff shape of {obj.structure.composition.reduced_formula}: weighted surface energy "
-                 f"{obj.weighted_surface_energy:.3f} J/m2, anisotropy {obj.anisotropy:.3f}, shape factor {obj.shape_factor:.3f}",
+        # WulffShape.structure is a placeholder (one H atom), so the material is not named here
+        lines = [f"Wulff shape: weighted surface energy {obj.weighted_surface_energy:.3f} J/m2, "
+                 f"anisotropy {obj.anisotropy:.3f}, shape factor {obj.shape_factor:.3f}",
                  "  facet  surface energy (J/m2)  area fraction"]
         lines += [f"  {''.join(map(str, hkl)):>5}  {e:21.3f}  {obj.area_fraction_dict.get(hkl, 0):13.3f}" for hkl, e in facets]
         try:
@@ -220,8 +221,8 @@ def summarize(obj: Any) -> tuple[str, bytes | None]:
         except Exception:
             return "\n".join(lines), None
     if isinstance(obj, list) and obj and all(isinstance(e, PourbaixEntry) for e in obj):
-        rows = [f"  {e.entry_id or '-':>14}  {e.name:>22}  E {e.energy:8.3f} eV  npH {e.npH:5.1f}  nPhi {e.nPhi:5.1f}  nH2O {e.nH2O:5.1f}"
-                for e in obj[:60]]
+        rows = [f"  {str(e.entry_id or '-'):>14}  {str(e.name):>22}  E {float(e.energy):8.3f} eV  npH {float(e.npH):5.1f}  "
+                f"nPhi {float(e.nPhi):5.1f}  nH2O {float(e.nH2O):5.1f}" for e in obj[:60]]  # entry_id is an EntryID object, not str
         more = f"\n  ... {len(obj) - 60} more; ask for json for all" if len(obj) > 60 else ""
         return (f"{len(obj)} Pourbaix entries (solids and aqueous ions; build the diagram with "
                 f"pymatgen.analysis.pourbaix_diagram.PourbaixDiagram from the json)\n" + "\n".join(rows) + more), None
