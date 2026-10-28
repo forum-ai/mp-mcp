@@ -221,7 +221,7 @@ should print something like `{"status":"ok","endpoints":37,"object_methods":36,"
 
 To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag. Every update repeats `--cpu`, `--memory` and `--health-check-path`, because AWS does not document whether an update that omits them keeps the old values.
 
-**Step 10. Serve it as `mp.forum-ai.org`.** The service already answers at its `.on.aws` address. Giving it the FORUM-AI name takes a certificate, one load-balancer change and one DNS record, following AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html). You need `forum-ai.org` registered and a login to wherever its DNS records are managed.
+**Step 10. Serve it as `mp.forum-ai.org`.** Required before anyone can use the plugin: the plugin connects to `https://mp.forum-ai.org/mcp` and nothing else. The service already answers at its `.on.aws` address; giving it the FORUM-AI name takes a certificate, one load-balancer change and one DNS record, following AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html). You need `forum-ai.org` registered and a login to wherever its DNS records are managed.
 
 10a. Request a certificate for the name:
 
