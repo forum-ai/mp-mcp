@@ -65,18 +65,18 @@ If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a p
 ### Claude Code, without the plugin
 
 ```
-claude mcp add --transport http --scope user materials-project https://YOUR-SERVICE-URL/mcp --header "X-API-KEY: YOUR_MP_KEY"
+claude mcp add --transport http --scope user materials-project https://mp.forum-ai.org/mcp --header "X-API-KEY: YOUR_MP_KEY"
 ```
 
 ### Claude Desktop and claude.ai
 
-Settings → Connectors → Add custom connector, with the URL `https://YOUR-SERVICE-URL/mcp`. A static `X-API-KEY` header there is an organization-level beta ("Request headers"); without it, use Claude Code or run the server locally.
+Settings → Connectors → Add custom connector, with the URL `https://mp.forum-ai.org/mcp`. A static `X-API-KEY` header there is an organization-level beta ("Request headers"); without it, use Claude Code or run the server locally.
 
 ### Gemini CLI (`~/.gemini/settings.json`)
 
 ```json
 { "mcpServers": { "materials-project": {
-    "httpUrl": "https://YOUR-SERVICE-URL/mcp",
+    "httpUrl": "https://mp.forum-ai.org/mcp",
     "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
 ```
 
@@ -84,7 +84,7 @@ Settings → Connectors → Add custom connector, with the URL `https://YOUR-SER
 
 ```json
 { "mcpServers": { "materials-project": {
-    "serverUrl": "https://YOUR-SERVICE-URL/mcp",
+    "serverUrl": "https://mp.forum-ai.org/mcp",
     "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
 ```
 
@@ -125,6 +125,7 @@ This runs the server on Amazon ECS Express Mode, which gives it an address endin
 - The [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), logged in to your AWS account (`aws configure`, then `aws sts get-caller-identity` prints your account without error).
 - [Docker Desktop](https://docs.docker.com/desktop/), running (the whale icon in the menu bar).
 - The account's default VPC in `us-east-2` must still exist (it does unless someone deleted it; Express Mode puts its load balancer there).
+- For step 10 only: the `forum-ai.org` domain registered, and a login to its DNS provider.
 
 **Step 1. Find your account number.**
 
@@ -220,7 +221,29 @@ should print something like `{"status":"ok","endpoints":37,"object_methods":36,"
 
 To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag. Every update repeats `--cpu`, `--memory` and `--health-check-path`, because AWS does not document whether an update that omits them keeps the old values.
 
-**Step 10. Use your own domain name (optional).** To serve this from a name you own, such as `mp-mcp.materialscopilot.org`, point that name at `SERVICE_URL` in your DNS provider. If an older service was behind that name, retire it once clients have moved.
+**Step 10. Serve it as `mp.forum-ai.org`.** The service already answers at its `.on.aws` address. Giving it the FORUM-AI name takes a certificate, one load-balancer change and one DNS record, following AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html). You need `forum-ai.org` registered and a login to wherever its DNS records are managed.
+
+10a. Request a certificate for the name:
+
+```
+aws acm request-certificate --region us-east-2 --domain-name mp.forum-ai.org --validation-method DNS --query CertificateArn --output text
+```
+
+It prints an ARN; call it `CERT_ARN`. Then print the DNS record that proves you own the name:
+
+```
+aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query 'Certificate.DomainValidationOptions[0].ResourceRecord' --output table
+```
+
+At your DNS provider, add a CNAME record with exactly that Name and Value. Within a few minutes, `aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query Certificate.Status --output text` prints `ISSUED`. Wait for that before 10b.
+
+10b. Attach the certificate and the name to the service's load balancer, in the AWS console: EC2 → Load balancers → the one whose name contains `mp-mcp`. Note its DNS name (it ends in `elb.amazonaws.com`); call it `LB_DNS`. On the HTTPS:443 listener, under Certificates, add `CERT_ARN`. Under Rules, edit the rule that forwards to the service: its Host header condition lists the `.on.aws` name; add `mp.forum-ai.org` as a second value and save.
+
+10c. At your DNS provider, add a CNAME record `mp` pointing at `LB_DNS`.
+
+10d. Tell the server its new address, so its download links use it: repeat step 7 with `"value":"https://mp.forum-ai.org"` in place of `SERVICE_URL`, and if you set up step 9, change the `PUBLIC_URL` variable to the same.
+
+10e. Check: `curl https://mp.forum-ai.org/health` prints the same line as step 8, and `https://mp.forum-ai.org` in a browser shows the server's own page with the install steps. The old `.on.aws` address keeps working.
 
 **When something goes wrong.** `aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN` shows the status; the logs are in CloudWatch, in the log group that output names. A 503 from the address means no healthy task: check the logs for a startup error, and check that `SERVICE_URL/health` answers. A server that cannot reach the MP spec still starts, from the bundled snapshot, and `/health` then reports `"spec": "bundled snapshot"`. To remove everything, `aws ecs delete-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --monitor-resources`.
 

@@ -19,7 +19,7 @@
   "mcpServers": {
     "materials-project": {
       "type": "http",
-      "url": "https://mp-mcp.materialscopilot.org/mcp",
+      "url": "https://mp.forum-ai.org/mcp",
       "headers": { "X-API-KEY": "${user_config.mp_api_key}" }
     }
   }

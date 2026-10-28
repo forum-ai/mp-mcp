@@ -148,3 +148,11 @@ async def test_query_asks_for_legacy_ids_where_offered(mcp, mp_api):
     assert mp_api["params"]["id_format"] == "alpha"
     await call(mcp, "query", {"path": "/materials/synthesis/"})
     assert "id_format" not in mp_api["params"]
+
+
+def test_landing_page_tells_a_person_how_to_connect(mcp):
+    from starlette.testclient import TestClient
+
+    with TestClient(mcp.http_app()) as c:
+        r = c.get("/")
+    assert r.status_code == 200 and "/plugin install" in r.text and "/mcp" in r.text and "X-API-KEY" in r.text

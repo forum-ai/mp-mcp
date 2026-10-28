@@ -27,7 +27,7 @@ from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 
 from mp_mcp import objects, spec
 from mp_mcp.keys import MissingKey, api_key, hosted
@@ -61,6 +61,20 @@ count, query with limit=1 and read the total; for more rows than the limit, pass
 For band structures, densities of states, phonons, phase diagrams and other objects, use \
 list_objects and get_object; a structure comes as cif or poscar with format='cif'. For how MP \
 computes a value, use docs_search. Cite material_ids."""
+
+
+LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Materials Project MCP server</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:40em;margin:3em auto;padding:0 1em;line-height:1.5}}code{{background:#f3f3f3;padding:.1em .3em}}</style></head>
+<body><h1>Materials Project MCP server</h1>
+<p>Live <a href="https://materialsproject.org">Materials Project</a> data for AI assistants: {n} REST endpoints with every filter, {m} object methods (band structures, densities of states, phonons, phase diagrams, structures as CIF), and MP's documentation. Built by FORUM-AI.</p>
+<h2>Claude Code</h2>
+<ol><li>Get a Materials Project API key at <a href="https://next-gen.materialsproject.org/api">next-gen.materialsproject.org/api</a>.</li>
+<li>In Claude Code, type <code>/plugin install mp-mcp --marketplace forum-ai/mp-mcp</code>.</li>
+<li>Paste the key when it asks.</li>
+<li>Ask a materials question.</li></ol>
+<h2>Any other MCP client</h2>
+<p>Connect to <code>{base}/mcp</code> (Streamable HTTP) with your key in an <code>X-API-KEY</code> header. Every request runs under your own key; the server keeps none.</p>
+<p><a href="{base}/health">health</a></p></body></html>"""
 
 
 def _coerce(v: Any) -> Any:
@@ -270,6 +284,11 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         data, name = item
         return Response(data, media_type="application/json",
                         headers={"content-disposition": f'attachment; filename="{name}"'})
+
+    @mcp.custom_route("/", methods=["GET"])
+    async def home(request: Request) -> Response:
+        base = os.environ.get("MP_MCP_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+        return HTMLResponse(LANDING.format(base=base, n=len(eps), m=len(methods)))
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
