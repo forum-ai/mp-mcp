@@ -51,16 +51,45 @@ Every request runs under the caller's own MP API key (get one at <https://next-g
 
 ## Use it
 
+Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which all four clients below read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
+
 ### Claude Code
 
-1. Get a Materials Project API key at <https://next-gen.materialsproject.org/api>.
-2. In Claude Code, type `/plugin install mp-mcp --marketplace forum-ai/mp-mcp`.
-3. Paste the key when it asks. It goes into your system keychain.
-4. Ask a materials question.
-
-The plugin connects Claude Code to the hosted server and adds a skill that knows which call answers which kind of question, so Claude uses the Materials Project on its own whenever a question needs it. Nothing runs on your machine. While this repository is private, Claude Code needs a GitHub login that git can use before step 2: `gh auth login`, then `gh auth setup-git`, once.
+1. Type `/plugin install mp-mcp --marketplace forum-ai/mp-mcp`.
+2. Paste your key when asked. It goes into your system keychain.
+3. Ask a materials question.
 
 If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a permission allowlist the tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
+
+### Gemini CLI
+
+1. `gemini extensions install https://github.com/forum-ai/mp-mcp`
+2. Enter your key when asked. It goes into your system keychain.
+3. Ask a materials question.
+
+### Codex (CLI and IDE extension)
+
+1. Add to `~/.codex/config.toml`:
+   ```toml
+   [mcp_servers.materials-project]
+   url = "https://mp.forum-ai.org/mcp"
+   env_http_headers = { "X-API-KEY" = "MP_API_KEY" }
+   ```
+2. Put `export MP_API_KEY=your_key` in your shell profile.
+3. Give Codex the skill: `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.agents/mp-mcp && mkdir -p ~/.agents/skills && ln -s ~/.agents/mp-mcp/skills/materials-project ~/.agents/skills/materials-project`
+4. Ask a materials question.
+
+### Cursor
+
+1. Put `export MP_API_KEY=your_key` in your shell profile.
+2. `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.cursor/plugins/local/mp-mcp`, then restart Cursor. This loads the server and the skill as a local plugin.
+3. Ask a materials question.
+
+For the server alone, without the skill: [Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=materials-project&config=eyJ1cmwiOiJodHRwczovL21wLmZvcnVtLWFpLm9yZy9tY3AiLCJoZWFkZXJzIjp7IlgtQVBJLUtFWSI6IiR7ZW52Ok1QX0FQSV9LRVl9In19).
+
+### Any other MCP client
+
+Connect to `https://mp.forum-ai.org/mcp` over Streamable HTTP with your key in an `X-API-KEY` header. Claude Desktop and claude.ai: Settings → Connectors → Add custom connector with that URL; a static header there is an organization-level beta, so use Claude Code or a local server otherwise. ChatGPT's web connectors accept only OAuth or anonymous servers, so they cannot carry your key; the Codex side of the ChatGPT desktop app uses the Codex recipe above.
 
 ### Claude Code, without the plugin
 
@@ -68,27 +97,7 @@ If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a p
 claude mcp add --transport http --scope user materials-project https://mp.forum-ai.org/mcp --header "X-API-KEY: YOUR_MP_KEY"
 ```
 
-### Claude Desktop and claude.ai
-
-Settings → Connectors → Add custom connector, with the URL `https://mp.forum-ai.org/mcp`. A static `X-API-KEY` header there is an organization-level beta ("Request headers"); without it, use Claude Code or run the server locally.
-
-### Gemini CLI (`~/.gemini/settings.json`)
-
-```json
-{ "mcpServers": { "materials-project": {
-    "httpUrl": "https://mp.forum-ai.org/mcp",
-    "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
-```
-
-### Google Antigravity (`mcp_config.json`)
-
-```json
-{ "mcpServers": { "materials-project": {
-    "serverUrl": "https://mp.forum-ai.org/mcp",
-    "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
-```
-
-### Any MCP client, locally
+### Run the server yourself
 
 ```
 uv run mp-mcp                                  # stdio
