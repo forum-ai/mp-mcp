@@ -51,25 +51,18 @@ Every request runs under the caller's own MP API key (get one at <https://next-g
 
 ## Use it
 
-### Claude Code (recommended): the plugin
+### Claude Code
 
-You need [uv](https://docs.astral.sh/uv/) installed, and, while this repository is private, a GitHub login that git can use:
+1. Get a Materials Project API key at <https://next-gen.materialsproject.org/api>.
+2. In Claude Code, type `/plugin install mp-mcp --marketplace forum-ai/mp-mcp`.
+3. Paste the key when it asks. It goes into your system keychain.
+4. Ask a materials question.
 
-```
-gh auth login
-gh auth setup-git
-```
+The plugin connects Claude Code to the hosted server and adds a skill that knows which call answers which kind of question, so Claude uses the Materials Project on its own whenever a question needs it. Nothing runs on your machine. While this repository is private, Claude Code needs a GitHub login that git can use before step 2: `gh auth login`, then `gh auth setup-git`, once.
 
-Then, inside a Claude Code session:
+If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a permission allowlist the tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
 
-```
-/plugin marketplace add forum-ai/mp-mcp
-/plugin install mp-mcp@forum-ai-mp-mcp
-```
-
-(On Claude Code 2.1.275 or later, `/plugin install mp-mcp --marketplace forum-ai/mp-mcp` does both in one step.) Claude Code asks for your MP API key when it installs the plugin and keeps it in your system keychain; if no prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. After that the server is available in every project, and Claude uses it on its own whenever a question needs Materials Project data. The plugin runs the server on your machine, outside Claude Code's sandbox, with your key in its environment; the first start takes a minute while `uv` builds the environment. In a permission allowlist its tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
-
-### Claude Code: the hosted server
+### Claude Code, without the plugin
 
 ```
 claude mcp add --transport http --scope user materials-project https://YOUR-SERVICE-URL/mcp --header "X-API-KEY: YOUR_MP_KEY"
@@ -102,7 +95,7 @@ uv run mp-mcp                                  # stdio
 uv run mp-mcp --transport http --port 8000     # http://127.0.0.1:8000/mcp, this machine only
 ```
 
-A local HTTP server answers with your own key, so it listens on `127.0.0.1` unless you pass `--host`.
+A local HTTP server answers with your own key, so it listens on `127.0.0.1` unless you pass `--host`. To run the server from a checkout inside Claude Code instead of the hosted one (for development), `claude mcp add --scope user materials-project -e MP_API_KEY=YOUR_KEY -- uv run --project /path/to/mp-mcp mp-mcp`.
 
 ## Configuration
 
