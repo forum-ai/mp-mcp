@@ -37,19 +37,10 @@ The `materials-project` server exposes every MP REST endpoint and every `mp-api`
 | Equilibrium crystal shape, surface energies | `get_object("get_wulff_shape", {"material_id": "mp-149"})` |
 | More rows than one call returns | pass `"_skip": N` in `params` and call again |
 
-## Reading the numbers
-
-- **Band gaps are PBE (GGA/GGA+U) values** and run low, often by 30 to 50 percent against experiment. Say so when a user compares with a measured gap. A gap of 0 means MP finds the material metallic at this level of theory.
-- **`energy_above_hull`** is in eV/atom on MP's mixed GGA/GGA+U/r2SCAN hull. 0 means on the hull (`is_stable` is true). Values under about 0.03 eV/atom are often synthesizable; above about 0.1 eV/atom rarely. **`formation_energy_per_atom`** is relative to the elements, also in eV/atom.
-- **`/materials/thermo/` returns one document per functional** (`thermo_type`: `GGA_GGA+U`, `R2SCAN`, `GGA_GGA+U_R2SCAN`). Filter `thermo_types` or use `/materials/summary/`, which already carries the mixed-hull values.
-- **`theoretical`** is true when no experimental structure (ICSD) matches; `/materials/provenance/` lists the `database_IDs`.
-- **Magnetization** in the summary is μB per computed cell; `total_magnetization_normalized_formula_units` is per formula unit. `ordering` is FM, AFM, FiM or NM at 0 K.
-- **Moduli** `k_vrh`, `g_vrh` are in GPa (Voigt-Reuss-Hill averages); **dielectric** `e_total`, `e_electronic`, `e_ionic` are dimensionless, `n` is the refractive index.
-- **Every number is a 0 K DFT result** for the given structure, not a measurement. Entries with nonzero `energy_above_hull` are predicted metastable or unstable, not necessarily unknown.
-
 ## Answering
 
-- Give the value with its unit, the mp-id it came from, and the method in a few words ("MP, PBE-level DFT"). For lists, give mp-id, formula and the property per row.
+- Give the value with its unit and the mp-id it came from; for lists, mp-id, formula and the property per row. What a field means, its unit and how MP computed it are in `describe_endpoint` (MP's own field descriptions) and `docs_search`; take them from there rather than from memory.
+- `/materials/thermo/` returns one document per functional (`thermo_type`); filter `thermo_types` or use `/materials/summary/`, which carries one value per material.
 - When a count is the question, report the total from the first line of the result, not the number of rows returned.
 - Nested ids inside fields such as `decomposes_to`, and the ids returned by `find_structure`, may arrive in MP's AlphaID form (`mp-aaaaaaft`). They are valid MP ids; pass them back to `query` unchanged, and `material_ids` queries accept either form.
 - A tool error that names a missing filter or field means the name was wrong: run `describe_endpoint` and use the name it lists.
