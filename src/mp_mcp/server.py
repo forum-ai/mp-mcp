@@ -40,6 +40,10 @@ TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 60))
 ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "legacy")  # MP stores AlphaIDs (mp-aaaaaaft); people know mp-149
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+# Every tool is read-only, and asks Claude Code to load it up front rather than behind its
+# tool-search step: with the definitions deferred, a model that also has a shell tends to
+# write an mp-api script instead of searching for the tool. Seven small tools cost little.
+TOOL = dict(annotations=READ_ONLY, meta={"anthropic/alwaysLoad": True})
 
 # The query tool's own arguments, and the query-string names an endpoint may declare for them.
 # An argument is sent only under a name the endpoint's spec lists; the first match wins.
@@ -51,9 +55,11 @@ def _t(text: str) -> TextContent:
 
 INSTRUCTIONS = """\
 Live access to the Materials Project (MP): computed structures and properties of inorganic \
-materials and molecules. Use it for any question about a material's stability, band gap, \
-band structure, elastic, dielectric, magnetic, phonon, electrode or surface properties, \
-synthesis or similar materials. Work in this order: list_endpoints, describe_endpoint for \
+materials and molecules. Use these tools for any question about a material's stability, band \
+gap, band structure, elastic, dielectric, magnetic, phonon, electrode or surface properties, \
+synthesis or similar materials, and use them instead of writing mp-api or REST code: what \
+would be a script with an environment, a key file and an install step is one query call here. \
+Work in this order: list_endpoints, describe_endpoint for \
 the one you need, then query with a few fields and a small limit. /materials/summary/ holds \
 most properties of a material in one document (energy_above_hull, band_gap, is_stable, k_vrh, \
 ordering, ...); /materials/thermo/ returns one document per functional (thermo_types). For a \
@@ -138,14 +144,14 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         """The query-string name this endpoint declares for one of query's arguments, or None."""
         return next((n for n in CONTROL[arg] if ep.has_param(n)), None)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(**TOOL)
     def list_endpoints():
         """List every Materials Project REST endpoint with a one-line summary.
         Each path can be passed to describe_endpoint and query."""
         lines = [f"{ep.method} {ep.path}  {ep.summary}" for ep in eps.values()]
         return f"{len(lines)} endpoints (MP API, {source}):\n" + "\n".join(lines)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(**TOOL)
     def describe_endpoint(
         path: Annotated[str, Field(description="Endpoint path from list_endpoints, e.g. /materials/summary/")],
         search: Annotated[str, Field(description="Optional text to keep only matching parameters and fields, e.g. 'gap'")] = "",
@@ -175,7 +181,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             out += [f"  {n} ({f['type']}): {f['description']}" for n, f in fields.items()]
         return "\n".join(out)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(**TOOL)
     async def query(
         path: Annotated[str, Field(description="Endpoint path from list_endpoints")],
         fields: Annotated[list[str] | None, Field(description="Returned fields to include (see describe_endpoint). Ask only for what you need; empty means the whole document.")] = None,
@@ -218,7 +224,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         text, shown, note = _fit(rows, MAX_CHARS)
         return f"{total if total is not None else '?'} matches; {shown} returned.{note}\n{text}"
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(**TOOL)
     def list_objects(
         search: Annotated[str, Field(description="Optional text to filter by, e.g. 'bandstructure', 'phonon', 'phase_diagram', 'pourbaix'")] = "",
     ):
@@ -228,7 +234,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         its signature, for get_object."""
         return objects.describe(methods, search)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(**TOOL)
     async def get_object(
         method: Annotated[str, Field(description="Method name from list_objects, e.g. get_bandstructure_by_material_id or materials.thermo.get_phase_diagram_from_chemsys")],
         args: Annotated[dict[str, Any] | None, Field(description="Keyword arguments for the method, e.g. {'material_id': 'mp-149'} or {'material_id': 'mp-149', 'conventional_unit_cell': True}")] = None,
@@ -310,7 +316,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
                 raise ToolError(f"MP docs server unavailable ({exc}). Try https://docs.materialsproject.org/llms.txt") from None
             return "\n".join(getattr(b, "text", "") for b in r.content)
 
-        @mcp.tool(annotations=READ_ONLY)
+        @mcp.tool(**TOOL)
         async def docs_search(
             query: Annotated[str, Field(description="What to look up, e.g. 'energy above hull' or 'r2SCAN mixing scheme'")],
         ):
@@ -318,7 +324,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             usage) and return matching passages with links to their pages."""
             return await docs_call("searchDocumentation", {"query": query})
 
-        @mcp.tool(annotations=READ_ONLY)
+        @mcp.tool(**TOOL)
         async def docs_page(
             url: Annotated[str, Field(description="A docs.materialsproject.org page URL, e.g. one returned by docs_search")],
         ):

@@ -156,3 +156,7 @@ def test_landing_page_tells_a_person_how_to_connect(mcp):
     with TestClient(mcp.http_app()) as c:
         r = c.get("/")
     assert r.status_code == 200 and "/plugin install" in r.text and "/mcp" in r.text and "X-API-KEY" in r.text
+async def test_every_tool_asks_to_load_upfront(mcp):
+    async with Client(mcp) as c:
+        tools = await c.list_tools()
+    assert tools and all((t.meta or {}).get("anthropic/alwaysLoad") is True for t in tools)
