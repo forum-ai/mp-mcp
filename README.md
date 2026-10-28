@@ -125,31 +125,29 @@ If the live spec cannot be fetched at startup, the server uses the snapshot in `
 
 ## Deploy on AWS
 
-This runs the server on Amazon ECS Express Mode, which gives it an address ending in `.ecs.us-east-2.on.aws`. Express Mode creates the load balancer, HTTPS certificate, scaling and logs itself. Every command below is run from a terminal in a clone of this repository, one at a time, in order. Replace `ACCOUNT_ID` with the 12-digit AWS account number everywhere it appears (step 1 prints it).
+The server runs as one container on Amazon ECS Express Mode, which creates the load balancer, HTTPS certificate, scaling and logs itself. The whole job is: build the image and upload it, create the service, give it the name `mp.forum-ai.org`, and check it. Run every command below from a terminal in a clone of this repository, one at a time, in order.
 
-**What you need before you start:**
+**You need:** the [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) logged in to the FORUM-AI account (`aws configure`); [Docker Desktop](https://docs.docker.com/desktop/), running; and a login to the DNS provider for `forum-ai.org`.
 
-- The [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), logged in to your AWS account (`aws configure`, then `aws sts get-caller-identity` prints your account without error).
-- [Docker Desktop](https://docs.docker.com/desktop/), running (the whale icon in the menu bar).
-- The account's default VPC in `us-east-2` must still exist (it does unless someone deleted it; Express Mode puts its load balancer there).
+**Placeholders.** Commands below contain these words in capitals. Replace each with the value you wrote down at the step named.
 
-**Step 1. Find your account number.**
+| Placeholder | What it is | Where you get it |
+|---|---|---|
+| `ACCOUNT_ID` | the 12-digit AWS account number | `aws sts get-caller-identity --query Account --output text` |
+| `SERVICE_URL` | the service's own address, `https://mp-mcp-....ecs.us-east-2.on.aws` | step 5 |
+| `SERVICE_ARN` | `arn:aws:ecs:us-east-2:ACCOUNT_ID:service/default/mp-mcp` | fixed, once you know `ACCOUNT_ID` |
+| `CERT_ARN` | the certificate's ARN | step 6 |
+| `LB_DNS` | the load balancer's DNS name, ending in `elb.amazonaws.com` | step 6 |
 
-```
-aws sts get-caller-identity --query Account --output text
-```
-
-Copy the 12 digits it prints; they replace `ACCOUNT_ID` below.
-
-**Step 2. Create a place for the image (once).**
+**Step 1. Create a place for the image (once).**
 
 ```
 aws ecr create-repository --repository-name mp-mcp --region us-east-2
 ```
 
-If it says the repository already exists, that is fine.
+"Repository already exists" is fine.
 
-**Step 3. Build the image and upload it.**
+**Step 2. Build the image and upload it.**
 
 ```
 aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com
@@ -157,79 +155,82 @@ docker build --platform linux/amd64 -t ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.co
 docker push ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1
 ```
 
-The build takes a few minutes the first time. The last line of the push ends with a `sha256:` digest when it worked.
+The first build takes a few minutes. The push is done when its last line shows a `sha256:` digest.
 
-**Step 4. Create the two roles ECS needs (once).** First check whether they already exist:
+**Step 3. Create the two roles ECS needs (once).** Check first:
 
 ```
 aws iam get-role --role-name ecsTaskExecutionRole --query Role.Arn --output text
 aws iam get-role --role-name ecsInfrastructureRoleForExpressServices --query Role.Arn --output text
 ```
 
-If both print an ARN, skip to step 5. If one says `NoSuchEntity`, create it (these are the exact roles and policies from AWS's Express Mode tutorial):
+If both print an ARN, go to step 4. For any that says `NoSuchEntity`, run its two lines (these are the roles and policies from AWS's own Express Mode tutorial):
 
 ```
 aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 aws iam attach-role-policy --role-name ecsTaskExecutionRole --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+```
+
+```
 aws iam create-role --role-name ecsInfrastructureRoleForExpressServices --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 aws iam attach-role-policy --role-name ecsInfrastructureRoleForExpressServices --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
 ```
 
-Then wait one minute before step 5: new roles take a moment to become usable, and the first `create` can fail with "unable to assume" if you are too quick. If that happens, wait and run step 5 again.
+Then wait one minute before step 4; a brand-new role can make the next command fail with "unable to assume", and running it again fixes it.
 
-**Step 5. Create the service.**
+**Step 4. Create the service.**
 
 ```
 aws ecs create-express-gateway-service --region us-east-2 \
   --service-name mp-mcp \
   --execution-role-arn arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole \
   --infrastructure-role-arn arn:aws:iam::ACCOUNT_ID:role/ecsInfrastructureRoleForExpressServices \
-  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"}]}' \
+  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"https://mp.forum-ai.org"}]}' \
   --cpu 1 --memory 2 \
   --health-check-path /health \
   --scaling-target '{"minTaskCount":1,"maxTaskCount":1}' \
   --monitor-resources
 ```
 
-`--cpu 1 --memory 2` means 1 vCPU and 2 GB; the server uses about 450 MB once it has loaded pymatgen, so the smaller default would be tight. It takes a few minutes and shows progress; press `q` or Ctrl-C when the status reads `ACTIVE` (that only stops the display, not the service).
+1 vCPU and 2 GB (the server uses about 450 MB). It takes a few minutes and shows progress; press `q` when the status reads `ACTIVE` (that only closes the display). One task is enough for a group and keeps download links for large objects working, since those live in the task's memory.
 
-**Step 6. Write down the service's two addresses.** Run
+**Step 5. Check it at its own address.**
 
 ```
-aws ecs describe-express-gateway-service --region us-east-2 --service-arn arn:aws:ecs:us-east-2:ACCOUNT_ID:service/default/mp-mcp --query 'service.activeConfigurations[0].ingressPaths[0].endpoint' --output text
+aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --query 'service.activeConfigurations[0].ingressPaths[0].endpoint' --output text
 ```
 
-It prints the service's URL, which looks like `https://mp-mcp-abc123.ecs.us-east-2.on.aws`; call it `SERVICE_URL` below. The service ARN is the one in the command: `arn:aws:ecs:us-east-2:ACCOUNT_ID:service/default/mp-mcp`, called `SERVICE_ARN` below. If the `describe` command says the service does not exist, step 5 did not finish; look at its output.
+prints `SERVICE_URL`. Then `curl SERVICE_URL/health` should print `{"status":"ok","endpoints":37,...}`.
 
-One task is enough for a group, and it keeps the download links for large objects working: those links live in the memory of the task that made them. Raise `maxTaskCount` only after moving that store to S3.
+**Step 6. Give it the name `mp.forum-ai.org`.** A certificate, one load-balancer change and one DNS record, after AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html).
 
-**Step 7. Tell the server its public address**, so its download links use https.
+6a. Request the certificate and print the DNS record that proves you own the name:
+
+```
+aws acm request-certificate --region us-east-2 --domain-name mp.forum-ai.org --validation-method DNS --query CertificateArn --output text
+aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query 'Certificate.DomainValidationOptions[0].ResourceRecord' --output table
+```
+
+At the DNS provider, add a CNAME with exactly that Name and Value. Within a few minutes `aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query Certificate.Status --output text` prints `ISSUED`. Wait for that.
+
+6b. In the AWS console: EC2 → Load balancers → the one whose name contains `mp-mcp`. Write down its DNS name (`LB_DNS`). On its HTTPS:443 listener: under Certificates, add `CERT_ARN`; under Rules, edit the rule that forwards to the service and add `mp.forum-ai.org` as a second value of its Host header condition.
+
+6c. At the DNS provider, add a CNAME `mp` pointing at `LB_DNS`.
+
+**Step 7. Check it at the name.** `curl https://mp.forum-ai.org/health` prints the same line as step 5, and `https://mp.forum-ai.org` in a browser shows the server's own page. The `.on.aws` address keeps working too.
+
+**Step 8. Make every merge to `main` deploy itself (optional).** In the GitHub repository, Settings → Secrets and variables → Actions: secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (an IAM user allowed to push to the ECR repository and update the service); variables `AWS_DEPLOY` = `true`, `AWS_REGION` = `us-east-2`, `ECR_REPOSITORY` = `mp-mcp`, `ECS_SERVICE_ARN` = `SERVICE_ARN`, `PUBLIC_URL` = `https://mp.forum-ai.org`. The workflow in `.github/workflows/deploy.yml` then builds, pushes and updates the service after the tests pass.
+
+**Step 9. To update by hand instead**, repeat step 2 with a new tag (`:v2`), then:
 
 ```
 aws ecs update-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN \
-  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"SERVICE_URL"}]}' \
+  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v2","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"https://mp.forum-ai.org"}]}' \
   --cpu 1 --memory 2 --health-check-path /health \
   --monitor-resources
 ```
 
-**Step 8. Check that it works.**
-
-```
-curl SERVICE_URL/health
-```
-
-should print something like `{"status":"ok","endpoints":37,"object_methods":36,"spec":"https://api.materialsproject.org/openapi.json"}`. Then connect a client (see "Use it" above) with `SERVICE_URL/mcp` and ask something like "What is the band gap of mp-149 according to the Materials Project?". The MCP Inspector (`npx @modelcontextprotocol/inspector`) also connects to the URL and lists the tools.
-
-**Step 9. Make every merge to `main` deploy itself (optional, recommended).** The workflow in `.github/workflows/deploy.yml` builds, pushes and updates the service after the tests pass. In the GitHub repository, under Settings → Secrets and variables → Actions:
-
-- Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (an IAM user allowed to push to the ECR repository and update the ECS service)
-- Variables: `AWS_DEPLOY` = `true`, `AWS_REGION` = `us-east-2`, `ECR_REPOSITORY` = `mp-mcp`, `ECS_SERVICE_ARN` = `SERVICE_ARN`, `PUBLIC_URL` = `SERVICE_URL`
-
-To deploy by hand instead, repeat step 3 with a new tag (`:v2`) and step 7 with that tag. Every update repeats `--cpu`, `--memory` and `--health-check-path`, because AWS does not document whether an update that omits them keeps the old values.
-
-**Step 10. Use your own domain name (optional).** To serve this from a name you own, such as `mp-mcp.materialscopilot.org`, point that name at `SERVICE_URL` in your DNS provider. If an older service was behind that name, retire it once clients have moved.
-
-**When something goes wrong.** `aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN` shows the status; the logs are in CloudWatch, in the log group that output names. A 503 from the address means no healthy task: check the logs for a startup error, and check that `SERVICE_URL/health` answers. A server that cannot reach the MP spec still starts, from the bundled snapshot, and `/health` then reports `"spec": "bundled snapshot"`. To remove everything, `aws ecs delete-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --monitor-resources`.
+**When something goes wrong.** `aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN` shows the status; the logs are in CloudWatch, in the log group that output names. A 503 means no healthy task: look for a startup error in the logs and check that `/health` answers. A server that cannot reach the MP spec still starts from its bundled snapshot and says `"spec": "bundled snapshot"` in `/health`. To remove everything: `aws ecs delete-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --monitor-resources`.
 
 ## Development
 
