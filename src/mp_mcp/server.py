@@ -60,7 +60,8 @@ gap, band structure, elastic, dielectric, magnetic, phonon, electrode or surface
 synthesis or similar materials, and use them instead of writing mp-api or REST code: what \
 would be a script with an environment, a key file and an install step is one query call here. \
 Work in this order: list_endpoints, describe_endpoint for \
-the one you need, then query with a few fields and a small limit. /materials/summary/ holds \
+the one you need, then query with a few fields and a small limit, always including formula_pretty beside \
+material_id so results carry a readable name. /materials/summary/ holds \
 most properties of a material in one document (energy_above_hull, band_gap, is_stable, k_vrh, \
 ordering, ...); /materials/thermo/ returns one document per functional (thermo_types). For a \
 count, query with limit=1 and read the total; for more rows than the limit, pass _skip in params. \

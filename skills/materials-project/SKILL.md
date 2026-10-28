@@ -39,7 +39,7 @@ The `materials-project` server exposes every MP REST endpoint and every `mp-api`
 
 ## Answering
 
-- Give the value with its unit and the mp-id it came from; for lists, mp-id, formula and the property per row. What a field means, its unit and how MP computed it are in `describe_endpoint` (MP's own field descriptions) and `docs_search`; take them from there rather than from memory.
+- Ask for `formula_pretty` beside `material_id` in every `query`, so each row carries a name a person can read next to its id. Give the value with its unit, the formula and the mp-id it came from; for lists, formula, mp-id and the property per row. What a field means, its unit and how MP computed it are in `describe_endpoint` (MP's own field descriptions) and `docs_search`; take them from there rather than from memory.
 - `/materials/thermo/` returns one document per functional (`thermo_type`); filter `thermo_types` or use `/materials/summary/`, which carries one value per material.
 - When a count is the question, report the total from the first line of the result, not the number of rows returned.
 - MP's identifiers are AlphaIDs (`mp-aaaaaaft`) and results carry them in that form; cite them as returned. Queries accept the older `mp-149` form too. When the user gave an id in the `mp-149` form, or you are matching ids in a paper, add `"id_format": "legacy"` to `params` so the results come back in that form; otherwise leave ids as MP returns them.
