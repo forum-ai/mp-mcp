@@ -24,7 +24,7 @@ query("/materials/summary/", fields=["material_id", "formula_pretty", "band_gap"
 
 and for a structure file, `get_object("get_structure_by_material_id", {"material_id": "mp-149", "conventional_unit_cell": true}, format="cif")`.
 
-Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens.
+Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
 
 ## Design
 

@@ -148,3 +148,9 @@ async def test_query_asks_for_legacy_ids_where_offered(mcp, mp_api):
     assert mp_api["params"]["id_format"] == "alpha"
     await call(mcp, "query", {"path": "/materials/synthesis/"})
     assert "id_format" not in mp_api["params"]
+
+
+async def test_every_tool_asks_to_load_upfront(mcp):
+    async with Client(mcp) as c:
+        tools = await c.list_tools()
+    assert tools and all((t.meta or {}).get("anthropic/alwaysLoad") is True for t in tools)
