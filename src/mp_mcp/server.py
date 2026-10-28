@@ -36,7 +36,7 @@ log = logging.getLogger("mp_mcp")
 
 MAX_ROWS = int(os.environ.get("MP_MCP_MAX_ROWS", 500))
 MAX_CHARS = int(os.environ.get("MP_MCP_MAX_CHARS", 20_000))
-TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 60))
+TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 55))  # under the 60 s most clients wait, so our message arrives first
 ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "")  # empty: ids as MP stores them (AlphaIDs); "legacy" asks for mp-149 form on every query
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
@@ -80,6 +80,9 @@ LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>M
 <ol><li>Type <code>/plugin install mp-mcp --marketplace forum-ai/mp-mcp</code>.</li><li>Paste your key when asked.</li><li>Ask a materials question.</li></ol>
 <h2>Gemini CLI</h2>
 <ol><li><code>gemini extensions install https://github.com/forum-ai/mp-mcp</code></li><li>Enter your key when asked.</li><li>Ask a materials question.</li></ol>
+<h2>Antigravity</h2>
+<p>Add to <code>~/.gemini/config/mcp_config.json</code>:</p><pre>{{ "mcpServers": {{ "materials-project": {{
+    "serverUrl": "{base}/mcp", "headers": {{ "X-API-KEY": "YOUR_MP_KEY" }} }} }} }}</pre>
 <h2>Codex</h2>
 <ol><li>Add to <code>~/.codex/config.toml</code>:<pre>[mcp_servers.materials-project]
 url = "{base}/mcp"

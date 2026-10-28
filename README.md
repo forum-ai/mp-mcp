@@ -24,7 +24,7 @@ query("/materials/summary/", fields=["material_id", "formula_pretty", "band_gap"
 
 and for a structure file, `get_object("get_structure_by_material_id", {"material_id": "mp-149", "conventional_unit_cell": true}, format="cif")`.
 
-Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
+Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 55-second timeout on every MP call (under the 60 seconds most clients wait for a tool, so the server's own message arrives first), objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
 
 ## Design
 
@@ -51,7 +51,7 @@ Every request runs under the caller's own MP API key (get one at <https://next-g
 
 ## Use it
 
-Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which all three clients below read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
+Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which Claude Code, Gemini CLI and Codex read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
 
 ### Claude Code
 
@@ -66,6 +66,18 @@ If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a p
 1. `gemini extensions install https://github.com/forum-ai/mp-mcp`
 2. Enter your key when asked. It goes into your system keychain.
 3. Ask a materials question.
+
+### Antigravity
+
+Google's Antigravity CLI (the successor to Gemini CLI for free and Google One accounts) reads `~/.gemini/config/mcp_config.json`:
+
+```json
+{ "mcpServers": { "materials-project": {
+    "serverUrl": "https://mp.forum-ai.org/mcp",
+    "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
+```
+
+Then ask a materials question. The skill is not packaged for Antigravity; the server's own instructions carry the essentials.
 
 ### Codex (CLI and IDE extension)
 
@@ -108,7 +120,7 @@ A local HTTP server answers with your own key, so it listens on `127.0.0.1` unle
 | `PORT`, `HOST` | `8000`, `127.0.0.1` (`0.0.0.0` when hosted) | HTTP listen address; the MCP endpoint is `/mcp`, the health check `/health` |
 | `MP_API_ENDPOINT` | `https://api.materialsproject.org` | MP API to call |
 | `MP_MCP_SPEC_URL` | `MP_API_ENDPOINT/openapi.json` | Spec to read at startup; `bundled` uses the snapshot in the package |
-| `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `60` | Query guards; the timeout also applies to `get_object` |
+| `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `55` | Query guards; the timeout also applies to `get_object` |
 | `MP_MCP_INLINE_BYTES`, `MP_MCP_LINK_TTL` | `50000`, `3600` | Largest JSON object returned inline; lifetime of a download link in seconds |
 | `MP_MCP_MAX_OBJECT_BYTES`, `MP_MCP_STORE_BYTES` | `50000000`, `256000000` | Largest object served at all; memory the hosted server gives to download links (oldest go first) |
 | `MP_MCP_OUTPUT_DIR` | `~/.cache/mp-mcp/objects` | Where a local server writes large objects |
