@@ -75,8 +75,6 @@ LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>M
 <ol><li>Add to <code>~/.codex/config.toml</code>:<pre>[mcp_servers.materials-project]
 url = "{base}/mcp"
 env_http_headers = {{ "X-API-KEY" = "MP_API_KEY" }}</pre></li><li><code>export MP_API_KEY=your_key</code> in your shell profile.</li><li>Ask a materials question.</li></ol>
-<h2>Cursor</h2>
-<ol><li><code>export MP_API_KEY=your_key</code> in your shell profile.</li><li><code>git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.cursor/plugins/local/mp-mcp</code>, then restart Cursor.</li><li>Ask a materials question.</li></ol>
 <h2>Any other MCP client</h2>
 <p>Connect to <code>{base}/mcp</code> (Streamable HTTP) with your key in an <code>X-API-KEY</code> header.</p>
 <p><a href="{base}/health">health</a> · <a href="https://github.com/forum-ai/mp-mcp">source and full instructions</a></p></body></html>"""

@@ -51,7 +51,7 @@ Every request runs under the caller's own MP API key (get one at <https://next-g
 
 ## Use it
 
-Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which all four clients below read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
+Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which all three clients below read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
 
 ### Claude Code
 
@@ -78,14 +78,6 @@ If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a p
 2. Put `export MP_API_KEY=your_key` in your shell profile.
 3. Give Codex the skill: `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.agents/mp-mcp && mkdir -p ~/.agents/skills && ln -s ~/.agents/mp-mcp/skills/materials-project ~/.agents/skills/materials-project`
 4. Ask a materials question.
-
-### Cursor
-
-1. Put `export MP_API_KEY=your_key` in your shell profile.
-2. `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.cursor/plugins/local/mp-mcp`, then restart Cursor. This loads the server and the skill as a local plugin.
-3. Ask a materials question.
-
-For the server alone, without the skill: [Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=materials-project&config=eyJ1cmwiOiJodHRwczovL21wLmZvcnVtLWFpLm9yZy9tY3AiLCJoZWFkZXJzIjp7IlgtQVBJLUtFWSI6IiR7ZW52Ok1QX0FQSV9LRVl9In19).
 
 ### Any other MCP client
 
