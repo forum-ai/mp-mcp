@@ -141,12 +141,18 @@ async def test_get_object_times_out(mcp, monkeypatch):
         await call(slow, "get_object", {"method": "get_structure_by_material_id", "args": {"material_id": "mp-149"}})
 
 
-async def test_query_asks_for_legacy_ids_where_offered(mcp, mp_api):
+async def test_query_leaves_ids_as_stored_unless_asked(mcp, mp_api, monkeypatch):
+    from mp_mcp import server as srv
+
     await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"]})
+    assert "id_format" not in mp_api["params"]
+    await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"], "params": {"id_format": "legacy"}})
     assert mp_api["params"]["id_format"] == "legacy"
-    await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"], "params": {"id_format": "alpha"}})
-    assert mp_api["params"]["id_format"] == "alpha"
-    await call(mcp, "query", {"path": "/materials/synthesis/"})
+    monkeypatch.setattr(srv, "ID_FORMAT", "legacy")
+    legacy = srv.build_server(spec_url="bundled", mount_docs=False)
+    await call(legacy, "query", {"path": "/materials/summary/", "fields": ["material_id"]})
+    assert mp_api["params"]["id_format"] == "legacy"
+    await call(legacy, "query", {"path": "/materials/synthesis/"})
     assert "id_format" not in mp_api["params"]
 
 
