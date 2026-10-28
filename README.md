@@ -38,7 +38,7 @@ Each choice below follows from what an AI assistant needs in order to answer a m
 - **Keys belong to callers.** An MP key is personal: it carries the holder's rate limit and their access to restricted datasets. The hosted server therefore has no key of its own and forwards each request under the caller's header, so one user can never spend or expose another's; the local server finds a key the way `mp-api` does, so existing users need no setup.
 - **Read-only, and nothing persists.** The server can change nothing at MP, writes nothing about its users, and download links expire. Anything reachable from a chat window should be safe to point an untrusted conversation at.
 - **Errors are loud and in plain words; nothing fails silently.** Asking to sort an endpoint that cannot sort is an error, not an unsorted list, because the model would otherwise report the list as sorted. Timeouts, bad arguments and upstream failures say what happened and what to change.
-- **Identifiers as people know them.** MP stores AlphaIDs; responses are requested in the `mp-149` form wherever the API allows, because that is the form in papers, on the website and in users' notes.
+- **Identifiers as MP stores them.** MP's identifiers are AlphaIDs (`mp-aaaaaaft`); responses carry them as stored. Queries accept the older `mp-149` form as well, and a caller matching a paper or a user's own notes can ask for results in that form with `id_format=legacy`, on the endpoints that offer it.
 - **Startup never depends on the network.** The spec falls back to a bundled snapshot and object discovery runs offline, so an MP outage degrades answers rather than taking every conversation down with the server.
 - **Methodology comes from MP's documentation, not from a paraphrase.** How a hull energy or a band gap is computed changes between releases; the docs tools read MP's documentation server live.
 
@@ -118,7 +118,7 @@ A local HTTP server answers with your own key, so it listens on `127.0.0.1` unle
 | `MP_MCP_INLINE_BYTES`, `MP_MCP_LINK_TTL` | `50000`, `3600` | Largest JSON object returned inline; lifetime of a download link in seconds |
 | `MP_MCP_MAX_OBJECT_BYTES`, `MP_MCP_STORE_BYTES` | `50000000`, `256000000` | Largest object served at all; memory the hosted server gives to download links (oldest go first) |
 | `MP_MCP_OUTPUT_DIR` | `~/.cache/mp-mcp/objects` | Where a local server writes large objects |
-| `MP_MCP_ID_FORMAT` | `legacy` | MP stores identifiers as AlphaIDs (`mp-aaaaaaft`) and returns them that way unless asked; `legacy` asks for `mp-149`-style ids on the 25 endpoints that offer the choice. Empty to leave them as stored |
+| `MP_MCP_ID_FORMAT` | unset | Identifier form requested on every query, on the 25 endpoints that offer `id_format`. Unset: as MP stores them (AlphaIDs). `legacy`: the older `mp-149` form. A caller's own `id_format` in `params` always wins |
 | `MP_MCP_DOCS_URL` | `https://docs.materialsproject.org/~gitbook/mcp` | MP's docs MCP server; empty to turn the docs tools off |
 
 If the live spec cannot be fetched at startup, the server uses the snapshot in `src/mp_mcp/openapi_snapshot.json` and says so in `/health`. Startup needs no network at all.
