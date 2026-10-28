@@ -37,7 +37,7 @@ log = logging.getLogger("mp_mcp")
 MAX_ROWS = int(os.environ.get("MP_MCP_MAX_ROWS", 500))
 MAX_CHARS = int(os.environ.get("MP_MCP_MAX_CHARS", 20_000))
 TIMEOUT = float(os.environ.get("MP_MCP_TIMEOUT", 60))
-ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "legacy")  # MP stores AlphaIDs (mp-aaaaaaft); people know mp-149
+ID_FORMAT = os.environ.get("MP_MCP_ID_FORMAT", "")  # empty: ids as MP stores them (AlphaIDs); "legacy" asks for mp-149 form on every query
 DOCS_MCP = os.environ.get("MP_MCP_DOCS_URL", "https://docs.materialsproject.org/~gitbook/mcp")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 # Every tool is read-only, and asks Claude Code to load it up front rather than behind its
@@ -66,7 +66,9 @@ ordering, ...); /materials/thermo/ returns one document per functional (thermo_t
 count, query with limit=1 and read the total; for more rows than the limit, pass _skip in params. \
 For band structures, densities of states, phonons, phase diagrams and other objects, use \
 list_objects and get_object; a structure comes as cif or poscar with format='cif'. For how MP \
-computes a value, use docs_search. Cite material_ids."""
+computes a value, use docs_search. Cite material_ids. MP's identifiers are AlphaIDs \
+(mp-aaaaaaft); queries accept the older mp-149 form too, and when the user gave an id in that \
+form or is matching a paper, pass id_format='legacy' in params to get results in it."""
 
 
 def _coerce(v: Any) -> Any:
