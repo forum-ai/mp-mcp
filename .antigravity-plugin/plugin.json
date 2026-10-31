@@ -1,0 +1,17 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "mp-mcp",
+  "displayName": "Materials Project",
+  "version": "0.4.0",
+  "description": "Live Materials Project data: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation, with a skill that knows which call answers which materials question",
+  "suggestedPrompts": [
+    "What is the band gap of GaN, and is it direct?",
+    "Find stable lithium-containing oxides with a band gap between 2 and 4 eV",
+    "Give me a CIF file of the conventional cell of rutile TiO2"
+  ],
+  "author": { "name": "FORUM-AI development team", "url": "https://github.com/forum-ai" },
+  "homepage": "https://github.com/forum-ai/mp-mcp",
+  "repository": "https://github.com/forum-ai/mp-mcp",
+  "license": "BSD-3-Clause-LBNL",
+  "keywords": ["materials", "materials-project", "dft", "chemistry"]
+}

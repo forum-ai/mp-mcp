@@ -1,7 +1,7 @@
 {
   "name": "mp-mcp",
   "displayName": "Materials Project",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Live Materials Project data in Claude Code: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation, with a skill that knows which call answers which materials question",
   "author": { "name": "FORUM-AI development team", "email": "FORUM-AI@lbl.gov" },
   "repository": "https://github.com/forum-ai/mp-mcp",

@@ -1,6 +1,6 @@
 {
   "name": "mp-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Live Materials Project data: every MP API endpoint, band structures, DOS, phonons, phase diagrams, with a skill that routes materials questions to the tools",
   "mcpServers": {
     "materials-project": {

@@ -1,5 +1,5 @@
 # Deploys main to the ECS Express Mode service after the tests pass.
-# Off until the repository variable AWS_DEPLOY is set to "true" (README, "Deploy on AWS", the step that turns on automatic deploys).
+# Off until the repository variable AWS_DEPLOY is set to "true" (DEPLOY.md, "Deploy on AWS", the step that turns on automatic deploys).
 name: Deploy
 
 on:

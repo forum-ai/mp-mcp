@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "materials-project": {
+      "url": "https://mp.forum-ai.org/mcp",
+      "headers": { "X-API-KEY": "${MP_API_KEY}" },
+      "variables": [
+        {
+          "name": "MP_API_KEY",
+          "title": "Materials Project API key",
+          "description": "Your personal API key from the Materials Project dashboard.",
+          "link": "https://next-gen.materialsproject.org/api"
+        }
+      ]
+    }
+  }
+}

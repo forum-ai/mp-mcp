@@ -1,7 +1,9 @@
 """Whose MP API key a request runs under.
 
-Hosted (MP_MCP_HOSTED=1): only the caller's own X-API-KEY header, never the server's
-environment, so one user can never borrow another's key or the operator's.
+The caller sends the key as an X-API-KEY header or as "Authorization: Bearer <key>", the form
+clients with a token field (Codex, the OpenAI and Claude APIs) send; X-API-KEY wins if both come.
+Hosted (MP_MCP_HOSTED=1): only the caller's own header, never the server's environment, so one
+user can never borrow another's key or the operator's.
 Local: the caller's header if there is one, else MP_API_KEY, else pymatgen's PMG_MAPI_KEY.
 """
 from __future__ import annotations
@@ -19,14 +21,22 @@ def hosted() -> bool:
     return os.environ.get("MP_MCP_HOSTED", "").lower() in ("1", "true", "yes")
 
 
-def api_key() -> str:
-    headers = {k.lower(): v for k, v in get_http_headers(include={"x-api-key"}).items()}
+def _header_key() -> str:
+    headers = {k.lower(): v for k, v in get_http_headers(include={"x-api-key", "authorization"}).items()}
     if key := headers.get("x-api-key", "").strip():
+        return key
+    scheme, _, token = headers.get("authorization", "").strip().partition(" ")
+    return token.strip() if scheme.lower() == "bearer" else ""
+
+
+def api_key() -> str:
+    if key := _header_key():
         return key
     if hosted():
         raise MissingKey(
-            "This server needs your Materials Project API key in an X-API-KEY header. "
-            "Get one at https://next-gen.materialsproject.org/api and add it to your MCP client's config."
+            "This server needs your Materials Project API key, in an X-API-KEY header or as "
+            "'Authorization: Bearer <key>'. Get one at https://next-gen.materialsproject.org/api "
+            "and add it to your MCP client's config."
         )
     if key := os.environ.get("MP_API_KEY", "").strip():
         return key

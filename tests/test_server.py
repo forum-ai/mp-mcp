@@ -66,6 +66,29 @@ async def test_hosted_server_never_uses_its_own_key(monkeypatch, mp_api):
     assert "url" not in mp_api
 
 
+@pytest.mark.parametrize("headers, expected", [
+    ({"x-api-key": "header-key"}, "header-key"),
+    ({"authorization": "Bearer bearer-key"}, "bearer-key"),
+    ({"authorization": "bearer  bearer-key "}, "bearer-key"),
+    ({"x-api-key": "header-key", "authorization": "Bearer bearer-key"}, "header-key"),
+])
+def test_key_comes_from_either_header(monkeypatch, headers, expected):
+    from mp_mcp import keys
+
+    monkeypatch.setenv("MP_MCP_HOSTED", "1")
+    monkeypatch.setattr(keys, "get_http_headers", lambda **kw: headers)
+    assert keys.api_key() == expected
+
+
+def test_basic_auth_is_not_taken_as_a_key(monkeypatch):
+    from mp_mcp import keys
+
+    monkeypatch.setenv("MP_MCP_HOSTED", "1")
+    monkeypatch.setattr(keys, "get_http_headers", lambda **kw: {"authorization": "Basic dXNlcjpwYXNz"})
+    with pytest.raises(keys.MissingKey):
+        keys.api_key()
+
+
 async def test_get_object_summary_and_large_json(mcp, monkeypatch, tmp_path):
     from pymatgen.core import Lattice, Structure
 
@@ -161,7 +184,9 @@ def test_landing_page_tells_a_person_how_to_connect(mcp):
 
     with TestClient(mcp.http_app()) as c:
         r = c.get("/")
-    assert r.status_code == 200 and "/plugin install" in r.text and "/mcp" in r.text and "X-API-KEY" in r.text
+    assert r.status_code == 200 and "/plugin install" in r.text and "#readme" in r.text and "/mcp" in r.text and "X-API-KEY" in r.text
+
+
 async def test_every_tool_asks_to_load_upfront(mcp):
     async with Client(mcp) as c:
         tools = await c.list_tools()
