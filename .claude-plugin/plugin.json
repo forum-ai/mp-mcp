@@ -1,8 +1,8 @@
 {
   "name": "mp-mcp",
   "displayName": "Materials Project",
-  "version": "0.2.0",
-  "description": "Live Materials Project data in Claude Code: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation",
+  "version": "0.3.0",
+  "description": "Live Materials Project data in Claude Code: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation, with a skill that knows which call answers which materials question",
   "author": { "name": "FORUM-AI development team", "email": "FORUM-AI@lbl.gov" },
   "repository": "https://github.com/forum-ai/mp-mcp",
   "homepage": "https://github.com/forum-ai/mp-mcp",
@@ -11,19 +11,16 @@
     "mp_api_key": {
       "type": "string",
       "title": "Materials Project API key",
-      "description": "Your key from https://next-gen.materialsproject.org/api . Claude Code keeps it in your system keychain and passes it to the local server as MP_API_KEY.",
+      "description": "Your key from https://next-gen.materialsproject.org/api . Claude Code keeps it in your system keychain and sends it to the Materials Project MCP server with each request.",
       "required": true,
       "sensitive": true
     }
   },
   "mcpServers": {
     "materials-project": {
-      "command": "uv",
-      "args": ["run", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "mp-mcp"],
-      "env": {
-        "MP_API_KEY": "${user_config.mp_api_key}",
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv"
-      }
+      "type": "http",
+      "url": "https://mp.forum-ai.org/mcp",
+      "headers": { "X-API-KEY": "${user_config.mp_api_key}" }
     }
   }
 }

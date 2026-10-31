@@ -24,7 +24,7 @@ query("/materials/summary/", fields=["material_id", "formula_pretty", "band_gap"
 
 and for a structure file, `get_object("get_structure_by_material_id", {"material_id": "mp-149", "conventional_unit_cell": true}, format="cif")`.
 
-Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 60-second timeout on every MP call, objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
+Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 55-second timeout on every MP call (under the 60 seconds most clients wait for a tool, so the server's own message arrives first), objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
 
 ## Design
 
@@ -51,58 +51,64 @@ Every request runs under the caller's own MP API key (get one at <https://next-g
 
 ## Use it
 
-### Claude Code (recommended): the plugin
+Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which Claude Code, Gemini CLI and Codex read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
 
-You need [uv](https://docs.astral.sh/uv/) installed, and, while this repository is private, a GitHub login that git can use:
+### Claude Code
 
-```
-gh auth login
-gh auth setup-git
-```
+1. Type `/plugin install mp-mcp --marketplace forum-ai/mp-mcp`.
+2. Paste your key when asked. It goes into your system keychain.
+3. Ask a materials question.
 
-Then, inside a Claude Code session:
+If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a permission allowlist the tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
 
-```
-/plugin marketplace add forum-ai/mp-mcp
-/plugin install mp-mcp@forum-ai-mp-mcp
-```
+### Gemini CLI
 
-(On Claude Code 2.1.275 or later, `/plugin install mp-mcp --marketplace forum-ai/mp-mcp` does both in one step.) Claude Code asks for your MP API key when it installs the plugin and keeps it in your system keychain; if no prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. After that the server is available in every project, and Claude uses it on its own whenever a question needs Materials Project data. The plugin runs the server on your machine, outside Claude Code's sandbox, with your key in its environment; the first start takes a minute while `uv` builds the environment. In a permission allowlist its tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
+1. `gemini extensions install https://github.com/forum-ai/mp-mcp`
+2. Enter your key when asked. It goes into your system keychain.
+3. Ask a materials question.
 
-### Claude Code: the hosted server
+### Antigravity
 
-```
-claude mcp add --transport http --scope user materials-project https://YOUR-SERVICE-URL/mcp --header "X-API-KEY: YOUR_MP_KEY"
-```
-
-### Claude Desktop and claude.ai
-
-Settings → Connectors → Add custom connector, with the URL `https://YOUR-SERVICE-URL/mcp`. A static `X-API-KEY` header there is an organization-level beta ("Request headers"); without it, use Claude Code or run the server locally.
-
-### Gemini CLI (`~/.gemini/settings.json`)
+Google's Antigravity CLI (the successor to Gemini CLI for free and Google One accounts) reads `~/.gemini/config/mcp_config.json`:
 
 ```json
 { "mcpServers": { "materials-project": {
-    "httpUrl": "https://YOUR-SERVICE-URL/mcp",
+    "serverUrl": "https://mp.forum-ai.org/mcp",
     "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
 ```
 
-### Google Antigravity (`mcp_config.json`)
+Then ask a materials question. The skill is not packaged for Antigravity; the server's own instructions carry the essentials.
 
-```json
-{ "mcpServers": { "materials-project": {
-    "serverUrl": "https://YOUR-SERVICE-URL/mcp",
-    "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
+### Codex (CLI and IDE extension)
+
+1. Add to `~/.codex/config.toml`:
+   ```toml
+   [mcp_servers.materials-project]
+   url = "https://mp.forum-ai.org/mcp"
+   env_http_headers = { "X-API-KEY" = "MP_API_KEY" }
+   ```
+2. Put `export MP_API_KEY=your_key` in your shell profile.
+3. Give Codex the skill: `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.agents/mp-mcp && mkdir -p ~/.agents/skills && ln -s ~/.agents/mp-mcp/skills/materials-project ~/.agents/skills/materials-project`
+4. Ask a materials question.
+
+### Any other MCP client
+
+Connect to `https://mp.forum-ai.org/mcp` over Streamable HTTP with your key in an `X-API-KEY` header. Claude Desktop and claude.ai: Settings → Connectors → Add custom connector with that URL; a static header there is an organization-level beta, so use Claude Code or a local server otherwise. ChatGPT's web connectors accept only OAuth or anonymous servers, so they cannot carry your key; the Codex side of the ChatGPT desktop app uses the Codex recipe above.
+
+### Claude Code, without the plugin
+
+```
+claude mcp add --transport http --scope user materials-project https://mp.forum-ai.org/mcp --header "X-API-KEY: YOUR_MP_KEY"
 ```
 
-### Any MCP client, locally
+### Run the server yourself
 
 ```
 uv run mp-mcp                                  # stdio
 uv run mp-mcp --transport http --port 8000     # http://127.0.0.1:8000/mcp, this machine only
 ```
 
-A local HTTP server answers with your own key, so it listens on `127.0.0.1` unless you pass `--host`.
+A local HTTP server answers with your own key, so it listens on `127.0.0.1` unless you pass `--host`. To run the server from a checkout inside Claude Code instead of the hosted one (for development), `claude mcp add --scope user materials-project -e MP_API_KEY=YOUR_KEY -- uv run --project /path/to/mp-mcp mp-mcp`.
 
 ## Configuration
 
@@ -114,7 +120,7 @@ A local HTTP server answers with your own key, so it listens on `127.0.0.1` unle
 | `PORT`, `HOST` | `8000`, `127.0.0.1` (`0.0.0.0` when hosted) | HTTP listen address; the MCP endpoint is `/mcp`, the health check `/health` |
 | `MP_API_ENDPOINT` | `https://api.materialsproject.org` | MP API to call |
 | `MP_MCP_SPEC_URL` | `MP_API_ENDPOINT/openapi.json` | Spec to read at startup; `bundled` uses the snapshot in the package |
-| `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `60` | Query guards; the timeout also applies to `get_object` |
+| `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `55` | Query guards; the timeout also applies to `get_object` |
 | `MP_MCP_INLINE_BYTES`, `MP_MCP_LINK_TTL` | `50000`, `3600` | Largest JSON object returned inline; lifetime of a download link in seconds |
 | `MP_MCP_MAX_OBJECT_BYTES`, `MP_MCP_STORE_BYTES` | `50000000`, `256000000` | Largest object served at all; memory the hosted server gives to download links (oldest go first) |
 | `MP_MCP_OUTPUT_DIR` | `~/.cache/mp-mcp/objects` | Where a local server writes large objects |
@@ -202,7 +208,7 @@ aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVIC
 
 prints `SERVICE_URL`. Then `curl SERVICE_URL/health` should print `{"status":"ok","endpoints":37,...}`.
 
-**Step 6. Give it the name `mp.forum-ai.org`.** A certificate, one load-balancer change and one DNS record, after AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html).
+**Step 6. Give it the name `mp.forum-ai.org`.** Required before the plugin works: it connects to `https://mp.forum-ai.org/mcp` and nothing else. A certificate, one load-balancer change and one DNS record, after AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html).
 
 6a. Request the certificate and print the DNS record that proves you own the name:
 
