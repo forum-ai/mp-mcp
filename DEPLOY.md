@@ -233,6 +233,8 @@ claude plugin validate .
 
 **Step 5. Install it from scratch once,** in Claude Code, with the README's commands, and ask one question.
 
+**Step 6. Update the FORUM-AI catalog, on GitHub.** [forum-ai/plugins](https://github.com/forum-ai/plugins) lists this plugin and points at its latest release. Its Sync workflow picks up the new tag on its daily run; to update it at once, open forum-ai/plugins → Actions → Sync → Run workflow.
+
 Installed copies update this way:
 
 - **Claude Code:** users stay on their copy until the version string changes, which is why step 1 is what releases it. They get the new one with `claude plugin marketplace update forum-ai-mp-mcp`, or on their own if they turned on auto-update for the marketplace (`/plugin` → Marketplaces → Enable auto-update).
