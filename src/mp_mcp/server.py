@@ -76,19 +76,9 @@ LANDING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>M
 <style>body{{font-family:system-ui,sans-serif;max-width:44em;margin:3em auto;padding:0 1em;line-height:1.5}}code,pre{{background:#f3f3f3;padding:.1em .3em}}pre{{padding:.6em;overflow-x:auto}}h2{{margin-top:1.6em}}</style></head>
 <body><h1>Materials Project MCP server</h1>
 <p>Live <a href="https://materialsproject.org">Materials Project</a> data for AI assistants: {n} REST endpoints with every filter, {m} object methods (band structures, densities of states, phonons, phase diagrams, structures as CIF), and MP's documentation. Built by FORUM-AI. You need a <a href="https://next-gen.materialsproject.org/api">Materials Project API key</a>; every request runs under your own key and the server keeps none.</p>
-<h2>Claude Code</h2>
-<ol><li>Type <code>/plugin install mp-mcp --marketplace forum-ai/mp-mcp</code>.</li><li>Paste your key when asked.</li><li>Ask a materials question.</li></ol>
-<h2>Gemini CLI</h2>
-<ol><li><code>gemini extensions install https://github.com/forum-ai/mp-mcp</code></li><li>Enter your key when asked.</li><li>Ask a materials question.</li></ol>
-<h2>Antigravity</h2>
-<p>Add to <code>~/.gemini/config/mcp_config.json</code>:</p><pre>{{ "mcpServers": {{ "materials-project": {{
-    "serverUrl": "{base}/mcp", "headers": {{ "X-API-KEY": "YOUR_MP_KEY" }} }} }} }}</pre>
-<h2>Codex</h2>
-<ol><li>Add to <code>~/.codex/config.toml</code>:<pre>[mcp_servers.materials-project]
-url = "{base}/mcp"
-env_http_headers = {{ "X-API-KEY" = "MP_API_KEY" }}</pre></li><li><code>export MP_API_KEY=your_key</code> in your shell profile.</li><li>Ask a materials question.</li></ol>
-<h2>Any other MCP client</h2>
-<p>Connect to <code>{base}/mcp</code> (Streamable HTTP) with your key in an <code>X-API-KEY</code> header.</p>
+<h2>Connect it</h2>
+<p>In Claude Code, type <code>/plugin marketplace add forum-ai/mp-mcp</code>, then <code>/plugin install mp-mcp@forum-ai-mp-mcp</code>, and paste your key when asked. Steps for Codex, Gemini CLI, Antigravity, VS Code and Cursor, and how to remove it again, are in the <a href="https://github.com/forum-ai/mp-mcp#readme">README</a>.</p>
+<p>Any other MCP client: connect to <code>{base}/mcp</code> (Streamable HTTP) with your key in an <code>X-API-KEY</code> header, or as <code>Authorization: Bearer</code>.</p>
 <p><a href="{base}/health">health</a> · <a href="https://github.com/forum-ai/mp-mcp">source and full instructions</a></p></body></html>"""
 
 

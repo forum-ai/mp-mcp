@@ -1,270 +1,197 @@
-# mp-mcp: the Materials Project for any AI assistant
+# Materials Project for your AI assistant
 
-An MCP server that gives Claude, Gemini, Codex and other AI clients the whole Materials Project: every REST endpoint with every filter, the band structures, densities of states, phonons, phase diagrams and other objects that `mp-api` returns, and MP's own documentation.
+Connect an AI app to the [Materials Project](https://materialsproject.org) and ask about its data in plain language. The app can look up properties of known materials, find materials that meet your criteria, and fetch band structures, phonons, phase diagrams and crystal structure files. Each answer names the Materials Project ID of every material it used, so you can check it on the website.
 
-Nothing about the API is written down in this repository. At startup the server reads the MP API's own OpenAPI spec (`https://api.materialsproject.org/openapi.json`: 37 endpoints, 846 described parameters today) and walks the installed `mp-api` client for its object methods. A new endpoint, filter or field appears the next time the server restarts, with no code change.
+**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex, Gemini CLI, Antigravity, VS Code and Cursor have steps below, but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
 
-## Tools
+## Before you start: get your free API key
 
-| Tool | What it does |
-|---|---|
-| `list_endpoints` | Every MP REST endpoint, one line each |
-| `describe_endpoint(path, search)` | One endpoint's filters and returned fields, with the descriptions MP publishes, and whether it supports sorting |
-| `query(path, fields, params, limit, sort, body)` | Runs one endpoint; returns the total number of matches and the rows as JSON. `limit=1` gives just the count; `_skip` in `params` pages further |
-| `list_objects(search)` | The `mp-api` methods that return whole objects (36 today) |
-| `get_object(method, args, format)` | Calls one. `summary`: readable text plus a plot. `json`: the full pymatgen object (`as_dict`), inline when small, else a file or a download link. `cif` or `poscar`: a structure as that format |
-| `docs_search(query)`, `docs_page(url)` | MP's documentation, through the docs site's own MCP server |
+An API key is a personal code that lets an app use your Materials Project account.
 
-A typical session: `list_endpoints`, then `describe_endpoint("/materials/summary/", "gap")`, then
+1. Go to <https://next-gen.materialsproject.org/api> and log in. If you don't have an account yet, that page lets you create one for free.
+2. Copy the key shown on that page, and keep the page open until you have pasted the key into your app.
 
-```
-query("/materials/summary/", fields=["material_id", "formula_pretty", "band_gap"],
-      params={"elements": "Ba,O", "nelements_max": 3, "is_stable": true, "band_gap_min": 2, "band_gap_max": 3})
-```
+Treat the key like a password and don't share it.
 
-and for a structure file, `get_object("get_structure_by_material_id", {"material_id": "mp-149", "conventional_unit_cell": true}, format="cif")`.
+## Connect it
 
-Guards: at most 500 rows and 20,000 characters per query (cut to fit, with a note), a 55-second timeout on every MP call (under the 60 seconds most clients wait for a tool, so the server's own message arrives first), objects of at most 50 MB, and read-only access. The whole tool listing is about 4,600 characters, so connecting the server costs a conversation about 1,150 tokens. Every tool is marked to load up front (`anthropic/alwaysLoad`), so a client that defers MCP tools behind a search step, as Claude Code does by default, still has them in view from the first turn; the instructions tell the model to use them rather than write `mp-api` code.
-
-## Design
-
-Each choice below follows from what an AI assistant needs in order to answer a materials question correctly, and from what goes wrong when it does not have it.
-
-- **The API describes itself; this repository writes none of it down.** Endpoints, filters, field names and their descriptions are read from MP's OpenAPI spec at startup, and object methods from the installed `mp-api`. MP adds endpoints and fields with every release; a hand-written tool list goes stale and silently hides data, while a tool generated from the live spec cannot drift from it.
-- **Five general tools, not one per endpoint.** A client pays for the tool listing in context on every conversation. Thirty-seven endpoints with 846 parameters as separate tools would cost tens of thousands of tokens and still leave filters out; the seven tools together cost about 1,150 tokens and reach all of it, and the model reads the details of only the endpoint it needs, when it needs them.
-- **Everything needed to form a correct call is returned as text the model can read.** Filter names with MP's own descriptions, field names, whether the endpoint sorts, whether its fields are documented. REST APIs ignore parameters they do not know, so a guessed filter name produces a plausible but wrong answer with no error; a model that can see the real names does not have to guess.
-- **The model chooses fields and limits; the server bounds them.** Rows, characters, time and object size all have ceilings, and when a result is cut the response says so and how to narrow it. An unbounded result floods the conversation and ends it; a bounded one with a note lets the model ask again more precisely.
-- **Objects come in two registers.** Band structures, densities of states, phonons, phase diagrams and Wulff shapes are not tables. The summary answers the question in the chat (gap, transition, imaginary modes, stable phases) with the plot a person would draw; the JSON is the complete pymatgen object for an agent that continues in Python; a structure can also come as CIF or POSCAR, since that is how people hand structures to other programs.
-- **Keys belong to callers.** An MP key is personal: it carries the holder's rate limit and their access to restricted datasets. The hosted server therefore has no key of its own and forwards each request under the caller's header, so one user can never spend or expose another's; the local server finds a key the way `mp-api` does, so existing users need no setup.
-- **Read-only, and nothing persists.** The server can change nothing at MP, writes nothing about its users, and download links expire. Anything reachable from a chat window should be safe to point an untrusted conversation at.
-- **Errors are loud and in plain words; nothing fails silently.** Asking to sort an endpoint that cannot sort is an error, not an unsorted list, because the model would otherwise report the list as sorted. Timeouts, bad arguments and upstream failures say what happened and what to change.
-- **Identifiers as MP stores them.** MP's identifiers are AlphaIDs (`mp-aaaaaaft`); responses carry them as stored. Queries accept the older `mp-149` form as well, and a caller matching a paper or a user's own notes can ask for results in that form with `id_format=legacy`, on the endpoints that offer it.
-- **Startup never depends on the network.** The spec falls back to a bundled snapshot and object discovery runs offline, so an MP outage degrades answers rather than taking every conversation down with the server.
-- **Methodology comes from MP's documentation, not from a paraphrase.** How a hull energy or a band gap is computed changes between releases; the docs tools read MP's documentation server live.
-
-## Your API key
-
-Every request runs under the caller's own MP API key (get one at <https://next-gen.materialsproject.org/api>).
-
-- **Hosted** (`MP_MCP_HOSTED=1`, set in the container): the key comes only from the caller's `X-API-KEY` header and goes straight to the MP API on that request. The server stores nothing and never falls back to a key of its own.
-- **Local**: the caller's header if present, else `MP_API_KEY`, else `PMG_MAPI_KEY` in `~/.config/.pmgrc.yaml`. Anyone who already uses `mp-api` needs no setup.
-
-## Use it
-
-Every client needs two things: your Materials Project API key, from <https://next-gen.materialsproject.org/api>, and the server address `https://mp.forum-ai.org/mcp`. The skill that tells the assistant how to use the tools is in the Agent Skills format, which Claude Code, Gemini CLI and Codex read. While this repository is private, your git needs a GitHub login that can read it first: `gh auth login`, then `gh auth setup-git`, once.
+Find your app below and follow its steps in order. Each section also shows how to remove it again.
 
 ### Claude Code
 
-1. Type `/plugin install mp-mcp --marketplace forum-ai/mp-mcp`.
-2. Paste your key when asked. It goes into your system keychain.
-3. Ask a materials question.
+**Add it**
 
-If no key prompt appears, run `/plugin configure mp-mcp@forum-ai-mp-mcp`. In a permission allowlist the tools are named `mcp__plugin_mp-mcp_materials-project__<tool>`.
+1. **In a terminal**, start Claude Code:
 
-### Gemini CLI
-
-1. `gemini extensions install https://github.com/forum-ai/mp-mcp`
-2. Enter your key when asked. It goes into your system keychain.
-3. Ask a materials question.
-
-### Antigravity
-
-Google's Antigravity CLI (the successor to Gemini CLI for free and Google One accounts) reads `~/.gemini/config/mcp_config.json`:
-
-```json
-{ "mcpServers": { "materials-project": {
-    "serverUrl": "https://mp.forum-ai.org/mcp",
-    "headers": { "X-API-KEY": "YOUR_MP_KEY" } } } }
-```
-
-Then ask a materials question. The skill is not packaged for Antigravity; the server's own instructions carry the essentials.
-
-### Codex (CLI and IDE extension)
-
-1. Add to `~/.codex/config.toml`:
-   ```toml
-   [mcp_servers.materials-project]
-   url = "https://mp.forum-ai.org/mcp"
-   env_http_headers = { "X-API-KEY" = "MP_API_KEY" }
+   ```bash
+   claude
    ```
-2. Put `export MP_API_KEY=your_key` in your shell profile.
-3. Give Codex the skill: `git clone --depth 1 https://github.com/forum-ai/mp-mcp ~/.agents/mp-mcp && mkdir -p ~/.agents/skills && ln -s ~/.agents/mp-mcp/skills/materials-project ~/.agents/skills/materials-project`
-4. Ask a materials question.
 
-### Any other MCP client
+2. **In Claude Code**, type these two commands, one at a time. The first adds the FORUM-AI plugin list (Claude Code calls it a marketplace); the second installs the Materials Project plugin from it.
 
-Connect to `https://mp.forum-ai.org/mcp` over Streamable HTTP with your key in an `X-API-KEY` header. Claude Desktop and claude.ai: Settings → Connectors → Add custom connector with that URL; a static header there is an organization-level beta, so use Claude Code or a local server otherwise. ChatGPT's web connectors accept only OAuth or anonymous servers, so they cannot carry your key; the Codex side of the ChatGPT desktop app uses the Codex recipe above.
+   ```
+   /plugin marketplace add forum-ai/mp-mcp
+   ```
 
-### Claude Code, without the plugin
+   ```
+   /plugin install mp-mcp@forum-ai-mp-mcp
+   ```
 
-```
-claude mcp add --transport http --scope user materials-project https://mp.forum-ai.org/mcp --header "X-API-KEY: YOUR_MP_KEY"
-```
+3. **In Claude Code**, a box asks for your API key. Paste it and press Enter. Claude Code stores it in your computer's password store.
 
-### Run the server yourself
+**Remove it**
 
-```
-uv run mp-mcp                                  # stdio
-uv run mp-mcp --transport http --port 8000     # http://127.0.0.1:8000/mcp, this machine only
-```
+1. **In a terminal** (not inside Claude Code), run:
 
-A local HTTP server answers with your own key, so it listens on `127.0.0.1` unless you pass `--host`. To run the server from a checkout inside Claude Code instead of the hosted one (for development), `claude mcp add --scope user materials-project -e MP_API_KEY=YOUR_KEY -- uv run --project /path/to/mp-mcp mp-mcp`.
+   ```bash
+   claude plugin uninstall mp-mcp@forum-ai-mp-mcp
+   ```
 
-## Configuration
+2. Optional: to remove the FORUM-AI plugin list as well, run this too:
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `MP_MCP_HOSTED` | unset (`1` in the container) | Accept keys only from the caller's `X-API-KEY` header; listen on all interfaces |
-| `MP_MCP_PUBLIC_URL` | the request's own URL | Base URL for download links of large objects; set it to the service's https URL when hosted |
-| `MP_MCP_TRANSPORT` | `stdio` (`http` in the container) | `stdio` or `http` |
-| `PORT`, `HOST` | `8000`, `127.0.0.1` (`0.0.0.0` when hosted) | HTTP listen address; the MCP endpoint is `/mcp`, the health check `/health` |
-| `MP_API_ENDPOINT` | `https://api.materialsproject.org` | MP API to call |
-| `MP_MCP_SPEC_URL` | `MP_API_ENDPOINT/openapi.json` | Spec to read at startup; `bundled` uses the snapshot in the package |
-| `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `55` | Query guards; the timeout also applies to `get_object` |
-| `MP_MCP_INLINE_BYTES`, `MP_MCP_LINK_TTL` | `50000`, `3600` | Largest JSON object returned inline; lifetime of a download link in seconds |
-| `MP_MCP_MAX_OBJECT_BYTES`, `MP_MCP_STORE_BYTES` | `50000000`, `256000000` | Largest object served at all; memory the hosted server gives to download links (oldest go first) |
-| `MP_MCP_OUTPUT_DIR` | `~/.cache/mp-mcp/objects` | Where a local server writes large objects |
-| `MP_MCP_ID_FORMAT` | unset | Identifier form requested on every query, on the 25 endpoints that offer `id_format`. Unset: as MP stores them (AlphaIDs). `legacy`: the older `mp-149` form. A caller's own `id_format` in `params` always wins |
-| `MP_MCP_DOCS_URL` | `https://docs.materialsproject.org/~gitbook/mcp` | MP's docs MCP server; empty to turn the docs tools off |
+   ```bash
+   claude plugin marketplace remove forum-ai-mp-mcp
+   ```
 
-If the live spec cannot be fetched at startup, the server uses the snapshot in `src/mp_mcp/openapi_snapshot.json` and says so in `/health`. Startup needs no network at all.
+### Codex (not yet tried)
 
-## Deploy on AWS
+**Add it**
 
-The server runs as one container on Amazon ECS Express Mode, which creates the load balancer, HTTPS certificate, scaling and logs itself. The whole job is: build the image and upload it, create the service, give it the name `mp.forum-ai.org`, and check it. Run every command below from a terminal in a clone of this repository, one at a time, in order.
+1. **In a terminal**, add the FORUM-AI plugin list:
 
-**You need:** the [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) logged in to the FORUM-AI account (`aws configure`); [Docker Desktop](https://docs.docker.com/desktop/), running; and a login to the DNS provider for `forum-ai.org`.
+   ```bash
+   codex plugin marketplace add forum-ai/mp-mcp
+   ```
 
-**Placeholders.** Commands below contain these words in capitals. Replace each with the value you wrote down at the step named.
+2. **In Codex**, type `/plugins`. In the list that opens, choose **Materials Project** and install it.
+3. **In Codex**, paste your API key when asked.
 
-| Placeholder | What it is | Where you get it |
-|---|---|---|
-| `ACCOUNT_ID` | the 12-digit AWS account number | `aws sts get-caller-identity --query Account --output text` |
-| `SERVICE_URL` | the service's own address, `https://mp-mcp-....ecs.us-east-2.on.aws` | step 5 |
-| `SERVICE_ARN` | `arn:aws:ecs:us-east-2:ACCOUNT_ID:service/default/mp-mcp` | fixed, once you know `ACCOUNT_ID` |
-| `CERT_ARN` | the certificate's ARN | step 6 |
-| `LB_DNS` | the load balancer's DNS name, ending in `elb.amazonaws.com` | step 6 |
+**Remove it**
 
-**Step 1. Create a place for the image (once).**
+1. **In Codex**, type `/plugins`, choose **Materials Project**, and uninstall it.
+2. Optional, **in a terminal**: remove the FORUM-AI plugin list as well:
 
-```
-aws ecr create-repository --repository-name mp-mcp --region us-east-2
-```
+   ```bash
+   codex plugin marketplace remove forum-ai-mp-mcp
+   ```
 
-"Repository already exists" is fine.
+### Gemini CLI (not yet tried)
 
-**Step 2. Build the image and upload it.**
+**Add it**
 
-```
-aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com
-docker build --platform linux/amd64 -t ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1 .
-docker push ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1
-```
+1. **In a terminal**, run:
 
-The first build takes a few minutes. The push is done when its last line shows a `sha256:` digest.
+   ```bash
+   gemini extensions install https://github.com/forum-ai/mp-mcp
+   ```
 
-**Step 3. Create the two roles ECS needs (once).** Check first:
+2. **In the same terminal**, paste your API key when asked.
+3. Close Gemini CLI if it is open, and start it again.
 
-```
-aws iam get-role --role-name ecsTaskExecutionRole --query Role.Arn --output text
-aws iam get-role --role-name ecsInfrastructureRoleForExpressServices --query Role.Arn --output text
-```
+**Remove it**
 
-If both print an ARN, go to step 4. For any that says `NoSuchEntity`, run its two lines (these are the roles and policies from AWS's own Express Mode tutorial):
+1. **In a terminal**, run:
 
-```
-aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-aws iam attach-role-policy --role-name ecsTaskExecutionRole --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-```
+   ```bash
+   gemini extensions uninstall mp-mcp
+   ```
 
-```
-aws iam create-role --role-name ecsInfrastructureRoleForExpressServices --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-aws iam attach-role-policy --role-name ecsInfrastructureRoleForExpressServices --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
-```
+### Antigravity (not yet tried)
 
-Then wait one minute before step 4; a brand-new role can make the next command fail with "unable to assume", and running it again fixes it.
+**Add it**
 
-**Step 4. Create the service.**
+1. **In a terminal**, run:
 
-```
-aws ecs create-express-gateway-service --region us-east-2 \
-  --service-name mp-mcp \
-  --execution-role-arn arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole \
-  --infrastructure-role-arn arn:aws:iam::ACCOUNT_ID:role/ecsInfrastructureRoleForExpressServices \
-  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v1","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"https://mp.forum-ai.org"}]}' \
-  --cpu 1 --memory 2 \
-  --health-check-path /health \
-  --scaling-target '{"minTaskCount":1,"maxTaskCount":1}' \
-  --monitor-resources
-```
+   ```bash
+   agy plugin install https://github.com/forum-ai/mp-mcp
+   ```
 
-1 vCPU and 2 GB (the server uses about 450 MB). It takes a few minutes and shows progress; press `q` when the status reads `ACTIVE` (that only closes the display). One task is enough for a group and keeps download links for large objects working, since those live in the task's memory.
+   The plugin arrives switched off.
 
-**Step 5. Check it at its own address.**
+2. **In Antigravity**, type `/plugin` and turn on **Materials Project**. (In the Antigravity app, the same switch is under Customizations → Installed.)
+3. **In Antigravity**, paste your API key when asked.
 
-```
-aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --query 'service.activeConfigurations[0].ingressPaths[0].endpoint' --output text
-```
+**Remove it**
 
-prints `SERVICE_URL`. Then `curl SERVICE_URL/health` should print `{"status":"ok","endpoints":37,...}`.
+1. **In a terminal**, run:
 
-**Step 6. Give it the name `mp.forum-ai.org`.** Required before the plugin works: it connects to `https://mp.forum-ai.org/mcp` and nothing else. A certificate, one load-balancer change and one DNS record, after AWS's guide [Updating Resources Outside of Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-advanced-customization.html).
+   ```bash
+   agy plugin uninstall mp-mcp
+   ```
 
-6a. Request the certificate and print the DNS record that proves you own the name:
+### VS Code (not yet tried)
 
-```
-aws acm request-certificate --region us-east-2 --domain-name mp.forum-ai.org --validation-method DNS --query CertificateArn --output text
-aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query 'Certificate.DomainValidationOptions[0].ResourceRecord' --output table
-```
+**Add it**
 
-At the DNS provider, add a CNAME with exactly that Name and Value. Within a few minutes `aws acm describe-certificate --region us-east-2 --certificate-arn CERT_ARN --query Certificate.Status --output text` prints `ISSUED`. Wait for that.
+1. **In VS Code**, open the Command Palette (Cmd+Shift+P on a Mac, Ctrl+Shift+P on Windows and Linux) and run **MCP: Open User Configuration**. A settings file opens.
+2. **In that file**, if it is empty, paste the block below as it is. If it already has a `"servers"` section, copy only the `"materials-project"` part into that section, and the `"inputs"` part beside it.
 
-6b. In the AWS console: EC2 → Load balancers → the one whose name contains `mp-mcp`. Write down its DNS name (`LB_DNS`). On its HTTPS:443 listener: under Certificates, add `CERT_ARN`; under Rules, edit the rule that forwards to the service and add `mp.forum-ai.org` as a second value of its Host header condition.
+   ```json
+   {
+     "inputs": [
+       { "type": "promptString", "id": "mp-api-key", "description": "Materials Project API key", "password": true }
+     ],
+     "servers": {
+       "materials-project": {
+         "type": "http",
+         "url": "https://mp.forum-ai.org/mcp",
+         "headers": { "X-API-KEY": "${input:mp-api-key}" }
+       }
+     }
+   }
+   ```
 
-6c. At the DNS provider, add a CNAME `mp` pointing at `LB_DNS`.
+3. **In VS Code**, save the file. The first time the Materials Project tools start, VS Code asks for your API key; paste it.
 
-**Step 7. Check it at the name.** `curl https://mp.forum-ai.org/health` prints the same line as step 5, and `https://mp.forum-ai.org` in a browser shows the server's own page. The `.on.aws` address keeps working too.
+**Remove it**
 
-**Step 8. Make every merge to `main` deploy itself (optional).** In the GitHub repository, Settings → Secrets and variables → Actions: secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (an IAM user allowed to push to the ECR repository and update the service); variables `AWS_DEPLOY` = `true`, `AWS_REGION` = `us-east-2`, `ECR_REPOSITORY` = `mp-mcp`, `ECS_SERVICE_ARN` = `SERVICE_ARN`, `PUBLIC_URL` = `https://mp.forum-ai.org`. The workflow in `.github/workflows/deploy.yml` then builds, pushes and updates the service after the tests pass.
+1. **In VS Code**, open the Command Palette, run **MCP: List Servers**, choose **materials-project**, and uninstall it.
+2. If it is still listed, open the same file as in step 1 above and delete the `"materials-project"` part.
 
-**Step 9. To update by hand instead**, repeat step 2 with a new tag (`:v2`), then:
+### Cursor (not yet tried)
 
-```
-aws ecs update-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN \
-  --primary-container '{"image":"ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/mp-mcp:v2","containerPort":8000,"environment":[{"name":"MP_MCP_HOSTED","value":"1"},{"name":"MP_MCP_PUBLIC_URL","value":"https://mp.forum-ai.org"}]}' \
-  --cpu 1 --memory 2 --health-check-path /health \
-  --monitor-resources
-```
+**Add it**
 
-**When something goes wrong.** `aws ecs describe-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN` shows the status; the logs are in CloudWatch, in the log group that output names. A 503 means no healthy task: look for a startup error in the logs and check that `/health` answers. A server that cannot reach the MP spec still starts from its bundled snapshot and says `"spec": "bundled snapshot"` in `/health`. To remove everything: `aws ecs delete-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN --monitor-resources`.
+1. **In Cursor**, open the file `.cursor/mcp.json` in your home folder. If it doesn't exist, create it.
+2. **In that file**, paste the block below, then replace `YOUR_MP_KEY` with your API key. Keep the quote marks around it.
 
-## Development
+   ```json
+   {
+     "mcpServers": {
+       "materials-project": {
+         "url": "https://mp.forum-ai.org/mcp",
+         "headers": { "X-API-KEY": "YOUR_MP_KEY" }
+       }
+     }
+   }
+   ```
 
-```
-uv venv && uv pip install -e ".[test]"
-pytest -q -W ignore
-```
+3. **In Cursor**, save the file.
 
-The tests run offline against the bundled spec snapshot and a stubbed MP API. CI runs them and builds the container on every push. With your key exported, `uv run evaluation/smoke_test.py` runs every tool against the live API (see `evaluation/README.md`).
+**Remove it**
 
-| File | Holds |
-|---|---|
-| `src/mp_mcp/spec.py` | Reading the OpenAPI spec into endpoints, parameters and fields |
-| `src/mp_mcp/keys.py` | Whose key a request uses |
-| `src/mp_mcp/objects.py` | Finding `mp-api` object methods, summaries, plots and structure formats, large-object delivery |
-| `src/mp_mcp/server.py` | The tools, the download and health routes, and the command line |
-| `evaluation/` | The live smoke test, and twelve questions with an answer key for comparing setups |
+1. **In Cursor**, open the same file and delete the `"materials-project"` part, then save it.
 
-The only hand-written parts are the server's instruction paragraph, the summary for each pymatgen object type (band structure, DOS, phonons, phase diagram, structure, charge density, entries), and the guards. Everything an endpoint accepts or returns comes from MP.
+## Try it
 
-## Evaluating it
+Ask these in the app you just connected, in your own words if you like:
 
-`evaluation/` holds a live smoke test of every tool and twelve questions, from a control (silicon) through property screens, rankings and whole objects (a sorted list of the stiffest binary oxides, silicon's phonon dispersion, a CIF of the conventional cell). With your key exported:
+- "What is the band gap of GaN, and is it direct?"
+- "Find stable lithium-containing oxides with a band gap between 2 and 4 eV, ranked by how stable they are."
+- "Show me silicon's phonon band structure. Are there any unstable modes?"
+- "Give me a CIF file of the conventional cell of rutile TiO2."
 
-```
-export MP_API_KEY=your_key_here
-uv run evaluation/smoke_test.py      # every tool against the live API, pass/fail per request
-uv run evaluation/answer_key.py      # writes evaluation/answer_key.md, the correct answers for today's database
-```
+## Your key and your data
 
-`evaluation/README.md` has the prompts, what each one tests, and the scoring sheet for running the same model with no tools, with other MP connectors and with this one.
+Each question goes, with your key, to the FORUM-AI team's server at `mp.forum-ai.org`. The server passes it to the Materials Project and keeps no copy of your key. It can only read Materials Project data; it can't change anything in your account.
+
+## If something goes wrong
+
+- **The app says it "needs your Materials Project API key".** The key is missing or mistyped. In Claude Code, type `/plugin`, open **Installed**, choose **Materials Project**, and enter the key again under its options.
+- **The app doesn't seem to know about the Materials Project.** Quit the app and open it again. In Claude Code, type `/mcp`: `plugin:mp-mcp:materials-project` should be in the list, marked connected.
+- **An answer names no Materials Project IDs.** Ask the app to "use the Materials Project tools" and ask again.
+- **A step above doesn't work in your app:** [open an issue](https://github.com/forum-ai/mp-mcp/issues) and say which app and which step.
+
+## For developers
+
+[DEPLOY.md](DEPLOY.md) covers the tools in detail, running the server on your own computer, deploying it, releasing new plugin versions, and development.
