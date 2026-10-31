@@ -2,7 +2,7 @@
 
 Connect an AI app to the [Materials Project](https://materialsproject.org) and ask about its data in plain language. The app can look up properties of known materials, find materials that meet your criteria, and fetch band structures, phonons, phase diagrams and crystal structure files. Each answer names the Materials Project ID of every material it used, so you can check it on the website.
 
-**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex, Gemini CLI, Antigravity, VS Code and Cursor have steps below, but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
+**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex, Gemini CLI and Antigravity have steps below, and VS Code and Cursor have steps in [Installation on other platforms](OTHER_PLATFORMS.md), but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
 
 ## Before you start: get your free API key
 
@@ -119,58 +119,9 @@ Find your app below and follow its steps in order. Each section also shows how t
    agy plugin uninstall mp-mcp
    ```
 
-### VS Code (not yet tried)
+### Other platforms
 
-**Add it**
-
-1. **In VS Code**, open the Command Palette (Cmd+Shift+P on a Mac, Ctrl+Shift+P on Windows and Linux) and run **MCP: Open User Configuration**. A settings file opens.
-2. **In that file**, if it is empty, paste the block below as it is. If it already has a `"servers"` section, copy only the `"materials-project"` part into that section, and the `"inputs"` part beside it.
-
-   ```json
-   {
-     "inputs": [
-       { "type": "promptString", "id": "mp-api-key", "description": "Materials Project API key", "password": true }
-     ],
-     "servers": {
-       "materials-project": {
-         "type": "http",
-         "url": "https://mp.forum-ai.org/mcp",
-         "headers": { "X-API-KEY": "${input:mp-api-key}" }
-       }
-     }
-   }
-   ```
-
-3. **In VS Code**, save the file. The first time the Materials Project tools start, VS Code asks for your API key; paste it.
-
-**Remove it**
-
-1. **In VS Code**, open the Command Palette, run **MCP: List Servers**, choose **materials-project**, and uninstall it.
-2. If it is still listed, open the same file as in step 1 above and delete the `"materials-project"` part.
-
-### Cursor (not yet tried)
-
-**Add it**
-
-1. **In Cursor**, open the file `.cursor/mcp.json` in your home folder. If it doesn't exist, create it.
-2. **In that file**, paste the block below, then replace `YOUR_MP_KEY` with your API key. Keep the quote marks around it.
-
-   ```json
-   {
-     "mcpServers": {
-       "materials-project": {
-         "url": "https://mp.forum-ai.org/mcp",
-         "headers": { "X-API-KEY": "YOUR_MP_KEY" }
-       }
-     }
-   }
-   ```
-
-3. **In Cursor**, save the file.
-
-**Remove it**
-
-1. **In Cursor**, open the same file and delete the `"materials-project"` part, then save it.
+Steps for VS Code and Cursor are in [Installation on other platforms](OTHER_PLATFORMS.md).
 
 ## Try it
 
