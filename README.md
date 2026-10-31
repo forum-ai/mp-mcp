@@ -2,7 +2,7 @@
 
 Connect an AI app to the [Materials Project](https://materialsproject.org) and ask about its data in plain language. The app can look up properties of known materials, find materials that meet your criteria, and fetch band structures, phonons, phase diagrams and crystal structure files. Each answer names the Materials Project ID of every material it used, so you can check it on the website.
 
-**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex, Gemini CLI and Antigravity have steps below, and VS Code and Cursor have steps in [Installation on other platforms](OTHER_PLATFORMS.md), but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
+**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex and Antigravity have steps below, and Gemini CLI, VS Code and Cursor have steps in [Installation on other platforms](OTHER_PLATFORMS.md), but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
 
 ## Before you start: get your free API key
 
@@ -75,28 +75,9 @@ Find your app below and follow its steps in order. Each section also shows how t
    codex plugin marketplace remove forum-ai-mp-mcp
    ```
 
-### Gemini CLI (not yet tried)
-
-**Add it**
-
-1. **In a terminal**, run:
-
-   ```bash
-   gemini extensions install https://github.com/forum-ai/mp-mcp
-   ```
-
-2. **In the same terminal**, paste your API key when asked.
-3. Close Gemini CLI if it is open, and start it again.
-
-**Remove it**
-
-1. **In a terminal**, run:
-
-   ```bash
-   gemini extensions uninstall mp-mcp
-   ```
-
 ### Antigravity (not yet tried)
+
+Antigravity CLI is Google's successor to Gemini CLI; Google moved its free and Google AI Pro and Ultra users to it in June 2026 ([announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli)).
 
 **Add it**
 
@@ -121,7 +102,7 @@ Find your app below and follow its steps in order. Each section also shows how t
 
 ### Other platforms
 
-Steps for VS Code and Cursor are in [Installation on other platforms](OTHER_PLATFORMS.md).
+Steps for Gemini CLI, VS Code and Cursor are in [Installation on other platforms](OTHER_PLATFORMS.md).
 
 ## Try it
 

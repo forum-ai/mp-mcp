@@ -4,6 +4,29 @@ Steps for connecting the Materials Project to apps not covered in the [README](R
 
 These steps follow each app's own documentation but have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues) and say which app and which step.
 
+## Gemini CLI (not yet tried)
+
+Google moved Gemini CLI's free and Google AI Pro and Ultra users to Antigravity CLI on June 18, 2026; Gemini CLI stays available to Gemini Code Assist Standard and Enterprise customers and with paid API keys ([Google's announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli)). If you have Antigravity, use the Antigravity steps in the [README](README.md) instead.
+
+**Add it**
+
+1. **In a terminal**, run:
+
+   ```bash
+   gemini extensions install https://github.com/forum-ai/mp-mcp
+   ```
+
+2. **In the same terminal**, paste your API key when asked.
+3. Close Gemini CLI if it is open, and start it again.
+
+**Remove it**
+
+1. **In a terminal**, run:
+
+   ```bash
+   gemini extensions uninstall mp-mcp
+   ```
+
 ## VS Code (not yet tried)
 
 **Add it**
