@@ -30,7 +30,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
 from mp_mcp import objects, spec
-from mp_mcp.keys import MissingKey, api_key, hosted
+from mp_mcp.keys import MissingKey, api_key, hosted, user_agent
 
 log = logging.getLogger("mp_mcp")
 
@@ -202,7 +202,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             q[name] = sort
         if ID_FORMAT and (name := control(ep, "id_format")):
             q.setdefault(name, ID_FORMAT)
-        headers = {"x-api-key": key(), "user-agent": "mp-mcp"}
+        headers = {"x-api-key": key(), "user-agent": user_agent()}
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             try:
                 r = await client.request(ep.method, f"{spec.API_ROOT}{ep.path}", params=q, headers=headers,

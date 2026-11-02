@@ -40,6 +40,7 @@ async def test_query_passes_filters_fields_and_key(mcp, mp_api):
     assert mp_api["params"]["_fields"] == "material_id,band_gap"
     assert mp_api["params"]["_limit"] == "5"
     assert mp_api["headers"]["x-api-key"] == "k" * 32
+    assert mp_api["headers"]["user-agent"].startswith("mp-mcp/") and "mp-api/" in mp_api["headers"]["user-agent"]
     assert text(out).startswith("300 matches; 5 returned.")
     assert len(payload(out)) == 5
 
@@ -78,6 +79,21 @@ def test_key_comes_from_either_header(monkeypatch, headers, expected):
     monkeypatch.setenv("MP_MCP_HOSTED", "1")
     monkeypatch.setattr(keys, "get_http_headers", lambda **kw: headers)
     assert keys.api_key() == expected
+
+
+def test_user_agent_says_hosted_or_local(monkeypatch):
+    from mp_mcp import keys
+
+    monkeypatch.setenv("MP_MCP_HOSTED", "1")
+    assert keys.user_agent().startswith("mp-mcp/") and "(hosted; mp-api/" in keys.user_agent()
+    monkeypatch.delenv("MP_MCP_HOSTED")
+    assert "(local; mp-api/" in keys.user_agent()
+
+
+def test_object_calls_carry_our_user_agent_not_mp_apis():
+    rester = objects._client("k" * 32, offline=True)
+    assert rester.session.headers["user-agent"].startswith("mp-mcp/")
+    assert rester.materials.summary.session.headers["user-agent"].startswith("mp-mcp/")
 
 
 def test_basic_auth_is_not_taken_as_a_key(monkeypatch):
