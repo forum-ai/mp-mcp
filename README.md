@@ -75,7 +75,7 @@ Find your app below and follow its steps in order. Each section also shows how t
    codex plugin marketplace remove forum-ai-mp-mcp
    ```
 
-### Antigravity (not yet tried)
+### Antigravity
 
 Antigravity CLI is Google's successor to Gemini CLI; Google moved its free and Google AI Pro and Ultra users to it in June 2026 ([announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli)).
 
@@ -86,8 +86,18 @@ Antigravity CLI is Google's successor to Gemini CLI; Google moved its free and G
    ```bash
    agy plugin install https://github.com/forum-ai/mp-mcp
    ```
-
    The plugin arrives switched off.
+
+   If the terminal says `agy: command not found`, install the Antigravity CLI first — it is a separate install from the Antigravity app:
+
+   ```bash
+   # Linux and macOS
+   curl -fsSL https://antigravity.google/cli/install.sh | bash
+   # macOS with Homebrew
+   brew install --cask antigravity-cli
+   # Windows (PowerShell)
+   irm https://antigravity.google/cli/install.ps1 | iex
+   ```
 
 2. **In Antigravity**, type `/plugin` and turn on **Materials Project**. (In the Antigravity app, the same switch is under Customizations → Installed.)
 3. **In Antigravity**, paste your API key when asked.
