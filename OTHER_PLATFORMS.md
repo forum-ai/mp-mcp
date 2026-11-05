@@ -56,7 +56,7 @@ Google moved Gemini CLI's free and Google AI Pro and Ultra users to Antigravity 
 1. **In VS Code**, open the Command Palette, run **MCP: List Servers**, choose **materials-project**, and uninstall it.
 2. If it is still listed, open the same file as in step 1 above and delete the `"materials-project"` part.
 
-## Cursor (not yet tried)
+## Cursor
 
 **Add it**
 
