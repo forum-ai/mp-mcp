@@ -5,10 +5,14 @@ clients with a token field (Codex, the OpenAI and Claude APIs) send; X-API-KEY w
 Hosted (MP_MCP_HOSTED=1): only the caller's own header, never the server's environment, so one
 user can never borrow another's key or the operator's.
 Local: the caller's header if there is one, else MP_API_KEY, else pymatgen's PMG_MAPI_KEY.
+
+Every call to the MP API also carries user_agent(), so MP can tell this server's traffic,
+hosted or local, from direct mp-api use.
 """
 from __future__ import annotations
 
 import os
+from importlib.metadata import PackageNotFoundError, version
 
 from fastmcp.server.dependencies import get_http_headers
 
@@ -19,6 +23,18 @@ class MissingKey(Exception):
 
 def hosted() -> bool:
     return os.environ.get("MP_MCP_HOSTED", "").lower() in ("1", "true", "yes")
+
+
+def _version(package: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def user_agent() -> str:
+    """e.g. 'mp-mcp/0.4.0 (hosted; mp-api/0.47.0)'."""
+    return f"mp-mcp/{_version('mp-mcp')} ({'hosted' if hosted() else 'local'}; mp-api/{_version('mp-api')})"
 
 
 def _header_key() -> str:
