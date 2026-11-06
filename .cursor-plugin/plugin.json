@@ -1,0 +1,24 @@
+{
+  "name": "mp-mcp",
+  "displayName": "Materials Project",
+  "version": "0.4.0",
+  "description": "Live Materials Project data: every MP API endpoint, band structures, DOS, phonons, phase diagrams and MP's documentation, with a skill that knows which call answers which materials question",
+  "author": { "name": "FORUM-AI development team", "email": "FORUM-AI@lbl.gov" },
+  "homepage": "https://github.com/forum-ai/mp-mcp",
+  "repository": "https://github.com/forum-ai/mp-mcp",
+  "license": "BSD-3-Clause-LBNL",
+  "keywords": ["materials", "materials-project", "dft", "chemistry"],
+  "category": "integrations",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "MP_API_KEY": {
+        "type": "string",
+        "title": "Materials Project API key",
+        "description": "Your key from https://next-gen.materialsproject.org/api . Cursor sends it to the Materials Project MCP server with each request."
+      }
+    },
+    "required": ["MP_API_KEY"]
+  },
+  "mcpServers": "./.cursor-plugin/mcp.json"
+}

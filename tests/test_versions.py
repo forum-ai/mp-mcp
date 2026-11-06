@@ -8,7 +8,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_every_manifest_has_the_package_version():
     package = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    manifests = [".claude-plugin/plugin.json", "gemini-extension.json", "plugin.json", ".antigravity-plugin/plugin.json"]
+    manifests = [
+        ".claude-plugin/plugin.json",
+        "gemini-extension.json",
+        "plugin.json",
+        ".antigravity-plugin/plugin.json",
+        ".cursor-plugin/plugin.json",
+    ]
     found = {name: json.loads((ROOT / name).read_text())["version"] for name in manifests}
     assert found == {name: package for name in manifests}
 

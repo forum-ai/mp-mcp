@@ -206,9 +206,12 @@ These files are what clients install:
 | `plugin.json`, `mcp.json`, `.agents/plugins/marketplace.json` | Codex |
 | `.antigravity-plugin/plugin.json`, `mcp_config.json` | Antigravity |
 | `gemini-extension.json` | Gemini CLI |
-| `skills/materials-project/SKILL.md` | all four |
+| `.cursor-plugin/plugin.json`, `.cursor-plugin/mcp.json` | Cursor |
+| `skills/materials-project/SKILL.md` | all five |
 
-Each client reads only its own manifest, so the version appears in five places: `pyproject.toml` and the four `plugin.json`-style files. Claude's marketplace entry carries no version on purpose; Claude Code reads it from `.claude-plugin/plugin.json`, and setting it in both is an error.
+Each client reads only its own manifest, so the version appears in six places: `pyproject.toml` and the five `plugin.json`-style files. Claude's marketplace entry carries no version on purpose; Claude Code reads it from `.claude-plugin/plugin.json`, and setting it in both is an error.
+
+Cursor's MCP config lives in `.cursor-plugin/mcp.json` rather than the root `mcp.json`, which is Codex's: Codex sends the key through its own auth extension, while Cursor needs the `X-API-KEY` header filled from the plugin variable `MP_API_KEY`. The manifest's `mcpServers` field points Cursor at that file instead of the root one. Cursor finds the skill in `skills/` without being told.
 
 **Step 1. Set the new version, on a branch.**
 
@@ -216,7 +219,7 @@ Each client reads only its own manifest, so the version appears in five places: 
 python scripts/bump_version.py 0.5.0
 ```
 
-It writes the version into all five files.
+It writes the version into all six files.
 
 **Step 2. Check it.**
 
@@ -241,6 +244,7 @@ Installed copies update this way:
 - **Gemini CLI:** it offers the update when `main` moves; `gemini extensions update mp-mcp` takes it at once.
 - **Codex:** `codex plugin marketplace upgrade forum-ai-mp-mcp`.
 - **Antigravity:** its documentation does not say how plugins installed from GitHub update; uninstalling and installing again works.
+- **Cursor:** the plugin is not yet in the Cursor Marketplace, which lists a plugin only after the Cursor team reviews it ([cursor.com/marketplace/publish](https://cursor.com/marketplace/publish)), and it has not been tried in Cursor yet. To try it, clone the repository into `~/.cursor/plugins/local/mp-mcp` (a symlink there to a checkout elsewhere is ignored), run **Developer: Reload Window**, and open **Customize**: it should list the `materials-project` skill and the MCP server `plugin-mp-mcp-materials-project`. A `git pull` in that folder and another reload takes an update. In a Teams or Enterprise marketplace, plugin variables are shared by the whole team, so every member's requests would carry one person's key; use the Marketplace listing or a local copy instead.
 
 ## Development
 
