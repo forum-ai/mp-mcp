@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "materials-project": {
+      "type": "http",
+      "url": "https://mp.forum-ai.org/mcp",
+      "headers": { "X-API-KEY": "${MP_API_KEY}" }
+    }
+  }
+}

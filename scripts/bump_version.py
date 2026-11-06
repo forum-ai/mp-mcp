@@ -21,6 +21,7 @@ FILES = {
     "gemini-extension.json": r'^(\s*"version":\s*")[^"]+(")',
     "plugin.json": r'^(\s*"version":\s*")[^"]+(")',
     ".antigravity-plugin/plugin.json": r'^(\s*"version":\s*")[^"]+(")',
+    ".cursor-plugin/plugin.json": r'^(\s*"version":\s*")[^"]+(")',
 }
 
 
