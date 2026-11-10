@@ -9,7 +9,6 @@ RUN apt-get update && \
 
 
 ARG PORT=8081
-#ARG MP_HOST="0.0.0.0"  # MP_MCP_HOSTED=1 
 ARG TRANSPORT="http"
 
 ENV PYTHONUNBUFFERED=1 \
@@ -20,20 +19,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 COPY pyproject.toml LICENSE README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir .  
-
-# Put the venv on PATH so `uvicorn` resolves without `uv run`.
-ENV PATH="/app/.venv/bin:$PATH"
+RUN pip install --no-cache-dir .
 
 EXPOSE ${PORT}
 
-
-ENV AWS_REGION=us-east-2
-# Settings reads MP_-prefixed vars; uvicorn requires a lowercase level
-ENV MP_LOG_LEVEL=info
 
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
