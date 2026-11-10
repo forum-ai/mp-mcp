@@ -1,40 +1,76 @@
-# Deploys main to the ECS Express Mode service after the tests pass.
-# Off until the repository variable AWS_DEPLOY is set to "true" (DEPLOY.md, "Deploy on AWS", the step that turns on automatic deploys).
-name: Deploy
+name: Deploy MCP Connector
 
+# Automatic redeployment on every push to main; workflow_dispatch keeps the
+# manual "Run workflow" button available.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  id-token: write   # required to request the OIDC token for role assumption
+  contents: read
+
+env:
+  AWS_REGION: us-east-2
+  STACK_NAME: scidac-forum-ai
+  CLUSTER_NAME: scidac-forum-ai-cluster
+  SERVICE_NAME: mcp-server-connector-service
+  ECR_REPO_NAME: scidac-forum-ai-mcp-connector
+  IMAGE_TAG: latest
+
 jobs:
   deploy:
-    if: vars.AWS_DEPLOY == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Assume the CloudFormation-created IAM role via OIDC.
+      # AWS_ROLE_ARN is a repository variable holding the
+      # GitHubActionsMCPConnectorDeployRoleArn stack output — no access keys.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          python-version: "3.12"
-      - run: pip install -e ".[test]" && pytest -q -W ignore
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - id: ecr
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      - name: Build and push the image
+
+      - name: Build, tag and push MCP connector image
         env:
-          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build --platform linux/amd64 -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-      - name: Point the service at the new image
+          IMAGE_URI="${ECR_REGISTRY}/scidac-forum-ai-mcp-connector:${IMAGE_TAG}"
+          docker build --platform linux/amd64 -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Force new ECS deployment of the MCP Connector
         run: |
-          aws ecs update-express-gateway-service \
-            --service-arn "${{ vars.ECS_SERVICE_ARN }}" \
-            --primary-container "{\"image\":\"$IMAGE\",\"containerPort\":8000,\"environment\":[{\"name\":\"MP_MCP_HOSTED\",\"value\":\"1\"},{\"name\":\"MP_MCP_PUBLIC_URL\",\"value\":\"${{ vars.PUBLIC_URL }}\"}]}" \
-            --cpu 1 --memory 2 --health-check-path /health \
-            --monitor-resources --monitor-mode TEXT-ONLY
+          aws ecs update-service \
+            --cluster "scidac-forum-ai-cluster" \
+            --service "$SERVICE_NAME" \
+            --force-new-deployment \
+            --region "us-east-2"
+          # services-stable also waits for old tasks to drain and caps at 10 min;
+          # poll the new deployment's rollout state instead (up to 30 min).
+          for i in $(seq 1 120); do
+            STATE=$(aws ecs describe-services \
+              --cluster "scidac-forum-ai-cluster" \
+              --services "$SERVICE_NAME" \
+              --region "us-east-2" \
+              --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" \
+              --output text)
+            echo "[$i] rolloutState=$STATE"
+            [ "$STATE" = "COMPLETED" ] && exit 0
+            if [ "$STATE" = "FAILED" ]; then
+              echo "::error::ECS deployment failed"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for ECS deployment"
+          exit 1
