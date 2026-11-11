@@ -20,7 +20,20 @@ env:
   IMAGE_TAG: latest
 
 jobs:
+  # The tests run on the image's Python (python:3.14-slim in the Dockerfile),
+  # and nothing is deployed unless they pass.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[test]"
+      - run: pytest -q -W ignore
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,10 +56,13 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          IMAGE_URI="${ECR_REGISTRY}/scidac-forum-ai-mcp-connector:${IMAGE_TAG}"
-          docker build --platform linux/amd64 -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
-          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          # The service runs :latest; the same image is also tagged with its
+          # commit, so ECR keeps a record of every deployed version to roll back to.
+          IMAGE="${ECR_REGISTRY}/${ECR_REPO_NAME}"
+          docker build --platform linux/amd64 -t "$IMAGE:${IMAGE_TAG}" -t "$IMAGE:${GITHUB_SHA}" .
+          docker push "$IMAGE:${IMAGE_TAG}"
+          docker push "$IMAGE:${GITHUB_SHA}"
+          echo "image_uri=$IMAGE:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Force new ECS deployment of the MCP Connector
         run: |

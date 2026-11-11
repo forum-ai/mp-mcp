@@ -73,7 +73,7 @@ claude mcp add --transport http --scope user materials-project https://mp.forum-
 | `MP_MCP_HOSTED` | unset (`1` in the container) | Accept keys only from the caller's `X-API-KEY` or `Authorization: Bearer` header; listen on all interfaces |
 | `MP_MCP_PUBLIC_URL` | the request's own URL | Base URL for download links of large objects; set it to the service's https URL when hosted |
 | `MP_MCP_TRANSPORT` | `stdio` (`http` in the container) | `stdio` or `http` |
-| `PORT`, `HOST` | `8000`, `127.0.0.1` (`0.0.0.0` when hosted) | HTTP listen address; the MCP endpoint is `/mcp`, the health check `/health` |
+| `PORT`, `HOST` | `8000` (`8081` in the container), `127.0.0.1` (`0.0.0.0` when hosted) | HTTP listen address; the MCP endpoint is `/mcp`, the health check `/health` |
 | `MP_API_ENDPOINT` | `https://api.materialsproject.org` | MP API to call |
 | `MP_MCP_SPEC_URL` | `MP_API_ENDPOINT/openapi.json` | Spec to read at startup; `bundled` uses the snapshot in the package |
 | `MP_MCP_MAX_ROWS`, `MP_MCP_MAX_CHARS`, `MP_MCP_TIMEOUT` | `500`, `20000`, `55` | Query guards; the timeout also applies to `get_object` |
@@ -87,7 +87,27 @@ If the live spec cannot be fetched at startup, the server uses the snapshot in `
 
 ## Deploy on AWS
 
-The server runs as one container on Amazon ECS Express Mode, which creates the load balancer, HTTPS certificate, scaling and logs itself. The whole job is: build the image and upload it, create the service, give it the name `mp.forum-ai.org`, and check it. Run every command below from a terminal in a clone of this repository, one at a time, in order.
+### The live server
+
+`mp.forum-ai.org` runs on the FORUM-AI AWS stack `scidac-forum-ai` in `us-east-2`: the ECS service `mcp-server-connector-service` on the cluster `scidac-forum-ai-cluster`, with its images in the ECR repository `scidac-forum-ai-mcp-connector`. The stack itself is maintained outside this repository.
+
+**Every merge to `main` deploys itself.** `.github/workflows/deploy.yml` runs the tests on Python 3.14, the image's Python. Only if they pass does it build the image, push it as `:latest` and as `:<commit hash>`, and restart the service on the new `:latest`. It signs in to AWS through GitHub's OIDC with the role in the repository variable `AWS_ROLE_ARN` (the stack output `GitHubActionsMCPConnectorDeployRoleArn`), so no AWS keys are stored in GitHub. Each run shows under Actions → Deploy MCP Connector.
+
+**To redeploy without a merge:** Actions → Deploy MCP Connector → Run workflow, on `main`.
+
+**To roll back** to the image of an earlier commit, point `:latest` at it and restart the service. `COMMIT_SHA` is the commit's full 40-character hash, from the repository's commit list:
+
+```
+MANIFEST=$(aws ecr batch-get-image --region us-east-2 --repository-name scidac-forum-ai-mcp-connector --image-ids imageTag=COMMIT_SHA --query 'images[0].imageManifest' --output text)
+aws ecr put-image --region us-east-2 --repository-name scidac-forum-ai-mcp-connector --image-tag latest --image-manifest "$MANIFEST"
+aws ecs update-service --region us-east-2 --cluster scidac-forum-ai-cluster --service mcp-server-connector-service --force-new-deployment
+```
+
+Only images built after the deploy started tagging commits can be rolled back to this way. The next merge to `main` deploys `main` again.
+
+### A new service on ECS Express Mode
+
+The steps below set up the server from scratch as one container on Amazon ECS Express Mode, which creates the load balancer, HTTPS certificate, scaling and logs itself. They create a new service and do not change the live one; skip step 6 unless the new service is to take over `mp.forum-ai.org`. The whole job is: build the image and upload it, create the service, give it a name, and check it. Run every command below from a terminal in a clone of this repository, one at a time, in order.
 
 **You need:** the [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) logged in to the FORUM-AI account (`aws configure`); [Docker Desktop](https://docs.docker.com/desktop/), running; and a login to the DNS provider for `forum-ai.org`.
 
@@ -181,9 +201,7 @@ At the DNS provider, add a CNAME with exactly that Name and Value. Within a few 
 
 **Step 7. Check it at the name.** `curl https://mp.forum-ai.org/health` prints the same line as step 5, and `https://mp.forum-ai.org` in a browser shows the server's own page. The `.on.aws` address keeps working too.
 
-**Step 8. Make every merge to `main` deploy itself (optional).** In the GitHub repository, Settings → Secrets and variables → Actions: secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (an IAM user allowed to push to the ECR repository and update the service); variables `AWS_DEPLOY` = `true`, `AWS_REGION` = `us-east-2`, `ECR_REPOSITORY` = `mp-mcp`, `ECS_SERVICE_ARN` = `SERVICE_ARN`, `PUBLIC_URL` = `https://mp.forum-ai.org`. The workflow in `.github/workflows/deploy.yml` then builds, pushes and updates the service after the tests pass.
-
-**Step 9. To update by hand instead**, repeat step 2 with a new tag (`:v2`), then:
+**Step 8. To update that service by hand**, repeat step 2 with a new tag (`:v2`), then:
 
 ```
 aws ecs update-express-gateway-service --region us-east-2 --service-arn SERVICE_ARN \
@@ -196,7 +214,7 @@ aws ecs update-express-gateway-service --region us-east-2 --service-arn SERVICE_
 
 ## Releasing a new plugin version
 
-The server and the plugins release separately. A merge to `main` redeploys the server (step 8 above), and every installed plugin reaches the new server at once, because a plugin only points at `https://mp.forum-ai.org/mcp`. New tools, fixes and changes to the server's instructions therefore need no plugin release. Release the plugin when something a client installs changes: the skill in `skills/`, a manifest, the key prompt or the URL.
+The server and the plugins release separately. A merge to `main` redeploys the server (see "The live server" above), and every installed plugin reaches the new server at once, because a plugin only points at `https://mp.forum-ai.org/mcp`. New tools, fixes and changes to the server's instructions therefore need no plugin release. Release the plugin when something a client installs changes: the skill in `skills/`, a manifest, the key prompt or the URL.
 
 These files are what clients install:
 
