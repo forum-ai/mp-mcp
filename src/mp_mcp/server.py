@@ -218,6 +218,11 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         except ValueError:
             raise ToolError(f"MP API returned something that is not JSON (status {r.status_code}): {r.text[:300]}") from None
         text, shown, note = _fit(rows, MAX_CHARS)
+        if fields and rows and all(isinstance(r, dict) for r in rows):
+            missing = [f for f in fields if not any(f in r for r in rows)]
+            if missing:
+                note += (f" MP returned no {', '.join(missing)} in any row; the API does not serve "
+                         f"{'it' if len(missing) == 1 else 'them'} here. list_objects may have a method for it.")
         return f"{total if total is not None else '?'} matches; {shown} returned.{note}\n{text}"
 
     @mcp.tool(**TOOL)
