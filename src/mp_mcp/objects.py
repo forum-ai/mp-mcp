@@ -45,11 +45,16 @@ def _client(api_key: str, offline: bool = False):
     from mp_api.client import MPRester
     from mp_api.client.core.client import BaseRester
 
+    from mp_mcp.keys import user_agent
+
+    # include_user_agent=False, or mp-api replaces our user-agent with its own.
+    kwargs = {"include_user_agent": False, "headers": {"user-agent": user_agent()}}
+
     if not offline:
-        return MPRester(api_key=api_key, mute_progress_bars=True)
+        return MPRester(api_key=api_key, mute_progress_bars=True, **kwargs)
     with mock.patch.object(MPRester, "get_emmet_version", staticmethod(lambda endpoint: None)), \
          mock.patch.object(BaseRester, "_get_heartbeat_info", staticmethod(lambda endpoint: (None, []))):
-        return MPRester(api_key=api_key, mute_progress_bars=True)
+        return MPRester(api_key=api_key, mute_progress_bars=True, **kwargs)
 
 
 def _getters(obj: Any, prefix: str = "") -> dict[str, Callable]:
