@@ -2,7 +2,7 @@
 
 Connect an AI app to the [Materials Project](https://materialsproject.org) and ask about its data in plain language. The app can look up properties of known materials, find materials that meet your criteria, and fetch band structures, phonons, phase diagrams and crystal structure files. Each answer names the Materials Project ID of every material it used, so you can check it on the website.
 
-**Which apps work.** Claude Code works today; it is Anthropic's assistant that runs in a terminal window. Codex and Antigravity have steps below, and Gemini CLI, VS Code and Cursor have steps in [Installation on other platforms](OTHER_PLATFORMS.md), but those steps have not been tried yet. If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
+**Which apps work.** Claude Code works today; it is Anthropic’s assistant that runs in a terminal window. Codex and Antigravity have steps below, and Gemini CLI, VS Code and Cursor have steps in [Installation on other platforms](OTHER_PLATFORMS.md). If one fails, please [open an issue](https://github.com/forum-ai/mp-mcp/issues). The chat in the Claude desktop app, claude.ai in a browser and ChatGPT can't be connected yet.
 
 ## Before you start: get your free API key
 
@@ -57,22 +57,39 @@ Find your app below and follow its steps in order. Each section also shows how t
 
 **Add it**
 
-1. **In a terminal**, run:
+1. **In a terminal** (macOS: Terminal.app), run:
 
    ```bash
    codex plugin marketplace add forum-ai/mp-mcp
    ```
 
-2. **In Codex** (run `codex`), type `/plugins`, open the **forum-ai-mp-mcp** tab, select **mp-mcp**, press Enter, and choose **Install plugin**. This installs the Materials Project skill. Codex does not ask for your API key here, so continue to the next step.
-3. **In a text editor**, open `~/.codex/config.toml` and paste the block below, then replace `YOUR_MP_KEY` with your API key. Keep the quote marks around it.
+   If this fails with a message about `git` or developer tools, run
+   `xcode-select --install`, finish that install, and try again.
 
-   ```toml
+2. **In a terminal**, run `codex` to open Codex. **Inside Codex**, type
+   `/plugins`, open the **forum-ai-mp-mcp** tab, select **mp-mcp**, press
+   Enter, and choose **Install plugin**. This installs the Materials Project
+   skill. Codex does not ask for your API key here. The next step adds it.
+   
+3. Press Ctrl+C twice to leave Codex. **Back in the terminal**,
+paste this
+   whole block as one command, replacing `YOUR_MP_KEY` with your API key
+   before pressing Enter (keep the quote marks around it). If you have
+   installed before, first open `~/.codex/config.toml` in a text editor and
+   delete any existing `[mcp_servers.materials-project]` block, so it is not
+   appended twice.
+
+   ```bash
+   cat >> ~/.codex/config.toml << 'EOF'
+
    [mcp_servers.materials-project]
    url = "https://mp.forum-ai.org/mcp"
    http_headers = { "X-API-KEY" = "YOUR_MP_KEY" }
+   EOF
    ```
 
-4. Close Codex if it is open, and start it again. Type `/mcp` to confirm **materials-project** is connected.
+4. **In a terminal**, run `codex` again. **Inside Codex**, type `/mcp` and
+   confirm **materials-project** is listed as connected.
 
 **Remove it**
 
@@ -83,7 +100,9 @@ Find your app below and follow its steps in order. Each section also shows how t
    codex plugin marketplace remove forum-ai-mp-mcp
    ```
 
-2. **In a text editor**, open `~/.codex/config.toml` and delete the `[mcs_servers.materials-project]` block. Close Codex and start it again; `/mcp` should no longer list materials-project.
+2. **In a text editor**, open `~/.codex/config.toml` and delete the
+   `[mcp_servers.materials-project]` block (three lines). Start `codex`
+   again; `/mcp` should no longer list materials-project.
 
 ### Antigravity
 
