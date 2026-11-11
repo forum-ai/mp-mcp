@@ -191,3 +191,10 @@ async def test_every_tool_asks_to_load_upfront(mcp):
     async with Client(mcp) as c:
         tools = await c.list_tools()
     assert tools and all((t.meta or {}).get("anthropic/alwaysLoad") is True for t in tools)
+
+
+async def test_query_says_when_requested_fields_come_back_missing(mcp, mp_api):
+    out = text(await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id", "band_gap", "phonon_bandstructure"], "limit": 2}))
+    assert "MP returned no phonon_bandstructure in any row" in out
+    out = text(await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id", "band_gap"], "limit": 2}))
+    assert "MP returned no" not in out
