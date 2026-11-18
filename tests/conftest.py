@@ -19,14 +19,16 @@ def mcp(monkeypatch):
 
 @pytest.fixture
 def mp_api(monkeypatch):
-    """Record what query sends to the MP API and answer with canned rows."""
-    seen = {}
+    """Record what query sends to the MP API (the last request, and every request's params
+    in "requests") and answer with canned rows."""
+    seen = {"requests": []}
     rows = [{"material_id": f"mp-{i}", "band_gap": 2.0 + i / 100} for i in range(300)]
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["params"] = dict(request.url.params)
         seen["headers"] = dict(request.headers)
+        seen["requests"].append(seen["params"])
         limit = int(request.url.params.get("_limit", 100))
         return httpx.Response(200, json={"data": rows[:limit], "meta": {"total_doc": len(rows)}})
 

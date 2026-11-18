@@ -241,6 +241,14 @@ def _rows() -> list[tuple[type, str, Callable[[Any], str]]]:
     ]
 
 
+def includes_gnome(obj: Any) -> bool:
+    """Whether obj is a phase diagram holding GNoME entries, which MP licenses BY-NC.
+    mp-api leaves them in for keys with GNoME access; each entry's data carries its license."""
+    from pymatgen.analysis.phase_diagram import PhaseDiagram
+
+    return isinstance(obj, PhaseDiagram) and any((getattr(e, "data", None) or {}).get("license") == "BY-NC" for e in obj.all_entries)
+
+
 def summarize(obj: Any) -> tuple[str, bytes | None]:
     """A few readable lines about the object, plus a PNG plot where pymatgen draws one."""
     for cls, text, plot in _summaries():

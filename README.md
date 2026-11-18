@@ -37,7 +37,45 @@ Find your app below and follow its steps in order. Each section also shows how t
    /plugin install mp-mcp@forum-ai-mp-mcp
    ```
 
-3. **In Claude Code**, a box asks for your API key. Paste it and press Enter. Claude Code stores it in your computer's password store.
+3. **In Claude Code**, a box asks you two things:
+   - **Materials Project API key:** paste your key. Claude Code stores it in your computer's password store.
+   - **GNoME data:** choose one of the three answers below. This only matters if your Materials Project account has GNoME data turned on (see [GNoME data](#gnome-data)). If you are not sure, keep the first one.
+     - **core (ask in your question to include GNoME)**: answers use core Materials Project data only. To include GNoME data in one answer, say so in your question, for example "include GNoME data".
+     - **always (if license enabled)**: answers include GNoME data whenever your account has it.
+     - **both (will increase queries and time for responses)**: each count is given with and without GNoME data.
+
+**Change your GNoME choice later**
+
+1. **In a terminal**, start Claude Code:
+
+   ```bash
+   claude
+   ```
+
+2. **In Claude Code**, type this command and press Enter:
+
+   ```
+   /plugin configure mp-mcp@forum-ai-mp-mcp
+   ```
+
+3. A box shows the plugin's settings. Choose the **GNoME data** answer you want and confirm. Leave the API key as it is.
+4. **In Claude Code**, type `/exit` and press Enter. Then start Claude Code again with `claude`, so the new choice is used.
+
+**If the plugin won't install** (older versions of Claude Code)
+
+1. **In a terminal** (not inside Claude Code), update Claude Code, then try the steps under **Add it** again:
+
+   ```bash
+   claude update
+   ```
+
+2. If it still won't install, connect the server without the plugin. **In a terminal**, run this, after replacing `YOUR_MP_KEY` with your API key. To choose another GNoME answer, replace `core` with `always` or `both`.
+
+   ```bash
+   claude mcp add --transport http --scope user materials-project https://mp.forum-ai.org/mcp -H "X-API-KEY: YOUR_MP_KEY" -H "X-MP-GNOME: core"
+   ```
+
+3. Start Claude Code with `claude` and type `/mcp`. `materials-project` should be in the list, marked connected. This way gives you the tools without the plugin's guide to using them. To change the GNoME answer later, remove the server with `claude mcp remove --scope user materials-project` in a terminal, then run step 2 again.
 
 **Remove it**
 
@@ -151,6 +189,18 @@ Ask these in the app you just connected, in your own words if you like:
 - "Find stable lithium-containing oxides with a band gap between 2 and 4 eV, ranked by how stable they are."
 - "Show me silicon's phonon band structure. Are there any unstable modes?"
 - "Give me a CIF file of the conventional cell of rutile TiO2."
+
+## GNoME data
+
+GNoME is a large set of predicted materials from Google DeepMind that the Materials Project offers separately. GNoME data may be used for non-commercial purposes only, and your key only sees it if your Materials Project account has GNoME data turned on.
+
+Answers use core Materials Project data only, unless you choose otherwise, and say once that GNoME data was not included. To include GNoME data in one answer, say so in your question, for example "include GNoME data".
+
+Claude Code asks for your standing choice when you install the plugin (see [Claude Code](#claude-code)). In any other app, add an `X-MP-GNOME` header beside the `X-API-KEY` header in the app's settings, with the value `core`, `always` or `both`. In Codex, for example:
+
+```toml
+http_headers = { "X-API-KEY" = "YOUR_MP_KEY", "X-MP-GNOME" = "always" }
+```
 
 ## Your key and your data
 
