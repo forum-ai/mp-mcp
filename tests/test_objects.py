@@ -20,6 +20,22 @@ def test_phase_diagram_summary():
     assert "Cl-Na" in text and "NaCl" in text and "eV/atom" in text
 
 
+def test_entries_with_element_keys_write_as_json():
+    # mp-api returns entries whose data["oxidation_states"] is keyed by Element, not str
+    from pymatgen.analysis.phase_diagram import PhaseDiagram
+    from pymatgen.core import Element
+    from pymatgen.entries.computed_entries import ComputedEntry
+
+    def entries():  # fresh each time, since to_json rewrites the keys in place
+        na, cl = Element("Na"), Element("Cl")
+        return [ComputedEntry("Na", 0, data={"oxidation_states": {na: 0}}),
+                ComputedEntry("Cl2", 0, data={"oxidation_states": {cl: 0}}),
+                ComputedEntry("NaCl", -8.4, data={"oxidation_states": {na: 1, cl: -1}})]
+
+    for obj in (PhaseDiagram(entries()), entries()):
+        assert b'"oxidation_states": {"Na": 1, "Cl": -1}' in objects.to_json(obj)
+
+
 def test_dos_summary():
     from pymatgen.electronic_structure.core import Spin
     from pymatgen.electronic_structure.dos import Dos

@@ -299,6 +299,12 @@ class Store:
 
 
 def to_json(obj: Any) -> bytes:
+    from pymatgen.entries.computed_entries import ComputedEntry
+
+    # mp-api entries key data["oxidation_states"] by Element; JSON needs str keys
+    for entry in getattr(obj, "all_entries", obj if isinstance(obj, list) else [obj]):
+        if isinstance(entry, ComputedEntry) and (ox := entry.data.get("oxidation_states")):
+            entry.data["oxidation_states"] = {str(el): v for el, v in ox.items()}
     data = json.dumps(obj, cls=MontyEncoder).encode()
     if len(data) > MAX_OBJECT_BYTES:
         raise TooLarge(f"{len(data):,} bytes of JSON; this server returns at most {MAX_OBJECT_BYTES:,}. "
