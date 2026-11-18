@@ -42,7 +42,7 @@ def q1(mpr):
 
 
 def q2(mpr):
-    docs = sorted(mpr.materials.summary.search(formula="NaFePO4", fields=["material_id", "symmetry", "energy_above_hull", "theoretical"]),
+    docs = sorted(mpr.materials.summary.search(include_gnome=False, formula="NaFePO4", fields=["material_id", "symmetry", "energy_above_hull", "theoretical"]),
                   key=lambda d: d.energy_above_hull)
     return ["## Q2 · NaFePO4 entries", ""] + table(docs, [
         ("mp-id", lambda d: d.material_id), ("space group", lambda d: d.symmetry.symbol),
@@ -51,7 +51,7 @@ def q2(mpr):
 
 
 def q3(mpr):
-    d = lowest(mpr.materials.summary.search(formula="Li7P3S11", fields=["material_id", "symmetry", "energy_above_hull", "decomposes_to"]))
+    d = lowest(mpr.materials.summary.search(include_gnome=False, formula="Li7P3S11", fields=["material_id", "symmetry", "energy_above_hull", "decomposes_to"]))
     out = ["## Q3 · Li7P3S11", "", f"- lowest-energy entry: {d.material_id} ({d.symmetry.symbol})",
            f"- energy above hull: {d.energy_above_hull:.4f} eV/atom", "- decomposes to:"]
     for p in d.decomposes_to or []:
@@ -62,14 +62,14 @@ def q3(mpr):
 
 
 def q4(mpr):
-    hits = sorted(mpr.materials.summary.search(elements=["Ba", "O"], num_elements=3, is_stable=True, band_gap=(2, 3),
+    hits = sorted(mpr.materials.summary.search(include_gnome=False, elements=["Ba", "O"], num_elements=3, is_stable=True, band_gap=(2, 3),
                                                fields=["material_id", "formula_pretty", "band_gap"]), key=lambda d: d.formula_pretty)
     return [f"## Q4 · Stable Ba–X–O ternaries with 2–3 eV gaps: {len(hits)} entries", ""] + table(hits, [
         ("mp-id", lambda d: d.material_id), ("formula", lambda d: d.formula_pretty), ("gap (eV)", lambda d: f"{d.band_gap:.3f}")])
 
 
 def q5(mpr):
-    lco = lowest(mpr.materials.summary.search(formula="LiCoO2", spacegroup_symbol="R-3m", fields=["material_id", "energy_above_hull"]))
+    lco = lowest(mpr.materials.summary.search(include_gnome=False, formula="LiCoO2", spacegroup_symbol="R-3m", fields=["material_id", "energy_above_hull"]))
     conv = mpr.get_structure_by_material_id(lco.material_id, conventional_unit_cell=True)
     prim = mpr.get_structure_by_material_id(lco.material_id)
     return ["## Q5 · LiCoO2, R-3m", "",
@@ -88,7 +88,7 @@ def q6(mpr):
 
 
 def q7(mpr):
-    docs = mpr.materials.summary.search(elements=["O"], num_elements=2, is_stable=True, k_vrh=(50, None),
+    docs = mpr.materials.summary.search(include_gnome=False, elements=["O"], num_elements=2, is_stable=True, k_vrh=(50, None),
                                         fields=["material_id", "formula_pretty", "k_vrh"])
     docs = sorted((d for d in docs if d.k_vrh is not None), key=lambda d: -d.k_vrh)[:10]
     return ["## Q7 · Stable binary oxides with the highest K_VRH (top 10)", ""] + table(docs, [
@@ -110,7 +110,7 @@ def q9(mpr):
 
 
 def q10(mpr):
-    d = lowest(mpr.materials.summary.search(formula="Fe3O4", fields=["material_id", "energy_above_hull", "ordering",
+    d = lowest(mpr.materials.summary.search(include_gnome=False, formula="Fe3O4", fields=["material_id", "energy_above_hull", "ordering",
                                                                       "total_magnetization", "total_magnetization_normalized_formula_units"]))
     return ["## Q10 · Fe3O4 ground state magnetism", "",
             f"- mp-id: {d.material_id} (energy above hull {d.energy_above_hull:.4f} eV/atom)",
@@ -143,7 +143,8 @@ def main():
     out = []
     with MPRester() as mpr:
         out += ["# Answer key", "", f"Computed {date.today().isoformat()} from Materials Project database version {mpr.db_version}.",
-                "Energies are eV/atom on MP's default mixed GGA/GGA+U/r2SCAN hull; gaps are the summary band gap in eV.", ""]
+                "Energies are eV/atom on MP's default mixed GGA/GGA+U/r2SCAN hull; gaps are the summary band gap in eV.",
+                "Searches are core MP only (GNoME excluded); the Q12 phase diagram includes GNoME entries when this key has GNoME access.", ""]
         for i, fn in enumerate([q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12], 1):
             try:
                 out += fn(mpr) + [""]

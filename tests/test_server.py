@@ -191,3 +191,53 @@ async def test_every_tool_asks_to_load_upfront(mcp):
     async with Client(mcp) as c:
         tools = await c.list_tools()
     assert tools and all((t.meta or {}).get("anthropic/alwaysLoad") is True for t in tools)
+
+
+@pytest.mark.parametrize("setting, license, first_line", [
+    (None, "BY-C", "300 matches; 20 returned."),  # no header: core MP only
+    ("core (ask in your question to include GNoME)", "BY-C", "300 matches; 20 returned."),
+    ("always (if license enabled)", None, "300 matches (GNoME data included where your key allows it); 20 returned."),
+    ("both", "BY-C", "300 matches in core MP (300 with GNoME data); 20 returned."),
+])
+async def test_query_follows_the_gnome_setting(mcp, mp_api, monkeypatch, setting, license, first_line):
+    from mp_mcp import server as srv
+
+    monkeypatch.setattr(srv, "get_http_headers", lambda **kw: {"X-MP-GNOME": setting} if setting else {})
+    out = text(await call(mcp, "query", {"path": "/materials/summary/", "fields": ["material_id"], "sort": "-band_gap"}))
+    assert out.split("\n")[0] == first_line
+    main, *more = mp_api["requests"]
+    assert main.get("license") == license
+    if setting == "both":  # one more request, for the total with GNoME data: one row, no sort
+        assert [(r["license"], r["_fields"], r["_limit"], "_sort_fields" in r) for r in more] == [("All", "material_id", "1", False)]
+    else:
+        assert more == []
+
+
+async def test_query_gnome_opt_in_and_bad_setting(mcp, mp_api, monkeypatch):
+    from mp_mcp import server as srv
+
+    monkeypatch.setattr(srv, "get_http_headers", lambda **kw: {"X-MP-GNOME": "both"})
+    out = text(await call(mcp, "query", {"path": "/materials/summary/", "params": {"license": "All"}}))
+    assert [r["license"] for r in mp_api["requests"]] == ["All"]  # the user asked for GNoME: one request
+    assert "GNoME" not in out
+    await call(mcp, "query", {"path": "/materials/dielectric/"})  # no license filter on this endpoint
+    assert "license" not in mp_api["params"]
+    monkeypatch.setattr(srv, "get_http_headers", lambda **kw: {"X-MP-GNOME": "sometimes"})
+    with pytest.raises(ToolError, match="use core, always or both"):
+        await call(mcp, "query", {"path": "/materials/summary/"})
+
+
+async def test_get_object_notes_gnome_phase_diagram(mcp, monkeypatch):
+    from pymatgen.analysis.phase_diagram import PhaseDiagram
+    from pymatgen.entries.computed_entries import ComputedEntry
+
+    def phase_diagram(nacl_license):
+        return PhaseDiagram([ComputedEntry("Na", 0, data={"license": "BY-C"}), ComputedEntry("Cl2", 0, data={"license": "BY-C"}),
+                             ComputedEntry("NaCl", -8.4, data={"license": nacl_license})])
+
+    args = {"method": "materials.thermo.get_phase_diagram_from_chemsys", "args": {"chemsys": "Cl-Na"}}
+    monkeypatch.setattr(objects, "call", lambda key, method, a: phase_diagram("BY-NC"))
+    assert "includes GNoME entries" in text(await call(mcp, "get_object", args))
+    assert "includes GNoME entries" in text(await call(mcp, "get_object", {**args, "format": "json"}))
+    monkeypatch.setattr(objects, "call", lambda key, method, a: phase_diagram("BY-C"))
+    assert "GNoME" not in text(await call(mcp, "get_object", args))

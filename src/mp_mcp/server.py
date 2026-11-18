@@ -22,7 +22,7 @@ import anyio
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.dependencies import get_http_request
+from fastmcp.server.dependencies import get_http_headers, get_http_request
 from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
@@ -67,7 +67,10 @@ ordering, ...); /materials/thermo/ returns one document per functional (thermo_t
 count, query with limit=1 and read the total; for more rows than the limit, pass _skip in params. \
 For band structures, densities of states, phonons, phase diagrams and other objects, use \
 list_objects and get_object; a structure comes as cif or poscar with format='cif'. For how MP \
-computes a value, use docs_search. Cite material_ids. MP's identifiers are AlphaIDs \
+computes a value, use docs_search. Cite material_ids. Unless the first line of a query result \
+mentions GNoME, its data is core MP only: say once, in your first answer that uses MP data, "GNoME \
+data not included. Ask to include it if you want it; GNoME data is licensed for non-commercial use \
+only." When the user asks to include GNoME data, pass "license": "All" in params. MP's identifiers are AlphaIDs \
 (mp-aaaaaaft); queries accept the older mp-149 form too, and when the user gave an id in that \
 form or is matching a paper, pass id_format='legacy' in params to get results in it."""
 
@@ -113,6 +116,35 @@ def _fit(rows: list, budget: int) -> tuple[str, int, str]:
                 " Cut to 1 row and truncated it to fit; ask for fewer fields.")
     note = "" if shown == len(parts) else f" Cut to {shown} rows to fit; ask for fewer fields or rows."
     return "[" + ", ".join(parts[:shown]) + "]", shown, note
+
+
+GNOME_MODES = ("core", "always", "both")
+
+
+def gnome_mode() -> str:
+    """The caller's GNoME setting: the first word of the X-MP-GNOME header (the Claude Code
+    plugin sends its install choice there), or "core" when there is none."""
+    headers = {k.lower(): v for k, v in get_http_headers(include={"x-mp-gnome"}).items()}
+    value = headers.get("x-mp-gnome", "").strip()
+    mode = value.split()[0].lower() if value else "core"
+    if mode not in GNOME_MODES:
+        raise ToolError(f"The X-MP-GNOME header is {value!r}; use core, always or both. In Claude Code, "
+                        "type /plugin configure mp-mcp@forum-ai-mp-mcp and choose again.")
+    return mode
+
+
+async def _gnome_total(client: httpx.AsyncClient, method: str, url: str, q: dict[str, Any],
+                       headers: dict[str, str]) -> int | None:
+    """The total of the same query with GNoME data (license "All"), from a one-row request;
+    None if that request fails."""
+    plain = {k: v for k, v in q.items() if k not in ("_sort_fields", "_skip")}
+    try:
+        r = await client.request(method, url, headers=headers,
+                                 params={**plain, "license": "All", "_fields": "material_id", "_limit": 1})
+        total = _rows(r.json())[1] if r.status_code < 400 else None
+    except (httpx.HTTPError, ValueError):
+        return None
+    return total if isinstance(total, int) else None
 
 
 def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMCP:
@@ -188,7 +220,8 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
     ):
         """Run one Materials Project endpoint and return matching documents as JSON rows,
         with the total number of matches. Filters, fields and paths are exactly those of the
-        MP API (describe_endpoint lists them)."""
+        MP API (describe_endpoint lists them). Results follow the user's GNoME setting, core MP
+        only by default; pass "license": "All" in params when the user asks for GNoME data."""
         ep = endpoint(path)
         q: dict[str, Any] = {k: _coerce(v) for k, v in (params or {}).items() if v is not None}
         if fields and (name := control(ep, "fields")):
@@ -202,15 +235,23 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
             q[name] = sort
         if ID_FORMAT and (name := control(ep, "id_format")):
             q.setdefault(name, ID_FORMAT)
+        # On endpoints with a license filter, the caller's GNoME setting decides the data unless
+        # the request sets license itself. The spec says BY-C is the default, but a key with
+        # GNoME access gets GNoME rows when license is left out (#26).
+        mode = gnome_mode() if ep.has_param("license") and "license" not in q else None
+        if mode in ("core", "both"):
+            q["license"] = "BY-C"
         headers = {"x-api-key": key(), "user-agent": "mp-mcp"}
+        url = f"{spec.API_ROOT}{ep.path}"
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             try:
-                r = await client.request(ep.method, f"{spec.API_ROOT}{ep.path}", params=q, headers=headers,
+                r = await client.request(ep.method, url, params=q, headers=headers,
                                          json=body if ep.method != "GET" else None)
             except httpx.TimeoutException:
                 raise ToolError(f"MP took longer than {TIMEOUT:.0f} s. Add filters or lower the limit.") from None
             except httpx.HTTPError as exc:
                 raise ToolError(f"Could not reach the MP API ({type(exc).__name__}: {exc}). Try again shortly.") from None
+            with_gnome = await _gnome_total(client, ep.method, url, q, headers) if mode == "both" else None
         if r.status_code >= 400:
             raise ToolError(f"MP API returned {r.status_code}: {r.text[:500]}")
         try:
@@ -218,7 +259,12 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         except ValueError:
             raise ToolError(f"MP API returned something that is not JSON (status {r.status_code}): {r.text[:300]}") from None
         text, shown, note = _fit(rows, MAX_CHARS)
-        return f"{total if total is not None else '?'} matches; {shown} returned.{note}\n{text}"
+        count = f"{total if total is not None else '?'} matches"
+        if mode == "both":
+            count += f" in core MP ({with_gnome if with_gnome is not None else '?'} with GNoME data)"
+        elif mode == "always":
+            count += " (GNoME data included where your key allows it)"
+        return f"{count}; {shown} returned.{note}\n{text}"
 
     @mcp.tool(**TOOL)
     def list_objects(
@@ -252,6 +298,13 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         if scope.cancelled_caught:
             raise ToolError(f"{method} took longer than {TIMEOUT:.0f} s. Narrow the request (a smaller chemical system, "
                             "one material) or fetch it with mp-api directly.")
+        out = await render(obj, method, args or {}, format)
+        if objects.includes_gnome(obj):
+            out.append(_t("Note: this phase diagram includes GNoME entries, under the non-commercial CC BY-NC license."))
+        return out
+
+    async def render(obj: Any, method: str, args: dict[str, Any], format: str) -> list:
+        """get_object's result for obj, in the format it was asked for."""
         if format in objects.STRUCTURE_FORMATS:
             try:
                 return [_t(objects.structure_text(obj, format))]
@@ -274,7 +327,7 @@ def build_server(spec_url: str | None = None, mount_docs: bool = True) -> FastMC
         except RuntimeError:
             request = None
         if request is None:  # stdio: the user's own machine
-            path = objects.local_file(data, method, args or {})
+            path = objects.local_file(data, method, args)
             return [_t(f"{len(data):,} bytes written to {path}. Load it with monty.serialization.loadfn('{path}').")]
         base = os.environ.get("MP_MCP_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
         token = store.put(data, name)

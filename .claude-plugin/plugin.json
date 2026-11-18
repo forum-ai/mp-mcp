@@ -14,13 +14,20 @@
       "description": "Your key from https://next-gen.materialsproject.org/api . Claude Code keeps it in your system keychain and sends it to the Materials Project MCP server with each request.",
       "required": true,
       "sensitive": true
+    },
+    "gnome_data": {
+      "type": "string",
+      "title": "GNoME data",
+      "description": "If your Materials Project account has GNoME data turned on (GNoME data may be used for non-commercial purposes only), which data should answers use? core: core Materials Project data only; to include GNoME data in an answer, ask for it in your question. always: include GNoME data whenever your account has it. both: give each count with and without GNoME data.",
+      "options": ["core (ask in your question to include GNoME)", "always (if license enabled)", "both (will increase queries and time for responses)"],
+      "default": "core (ask in your question to include GNoME)"
     }
   },
   "mcpServers": {
     "materials-project": {
       "type": "http",
       "url": "https://mp.forum-ai.org/mcp",
-      "headers": { "X-API-KEY": "${user_config.mp_api_key}" }
+      "headers": { "X-API-KEY": "${user_config.mp_api_key}", "X-MP-GNOME": "${user_config.gnome_data}" }
     }
   }
 }
